@@ -4,3 +4,12 @@ version = "0.1.0"
 authors = ["Osspial <osspial@gmail.com>"]
 
 [dependencies]
+harfbuzz-sys = "0.1"
+freetype = { git = "https://github.com/Osspial/rust-freetype" }
+libc = "0.2"
+lazy_static = "0.2"
+owning_ref = "0.3"
+unicode-segmentation = "1.2.0"
+unicode-bidi = "0.3"
+unicode-script = "0.1"
+cgmath = { git = "https://github.com/Osspial/cgmath", branch = "prs_merged"}
