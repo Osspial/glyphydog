@@ -3,13 +3,15 @@ extern crate freetype;
 extern crate libc;
 #[macro_use]
 extern crate lazy_static;
-extern crate owning_ref;
+extern crate stable_deref_trait;
+extern crate typed_arena;
 extern crate unicode_segmentation;
 extern crate unicode_bidi;
 extern crate unicode_script;
 extern crate cgmath;
 
 mod hb_funcs;
+mod ft_alloc;
 
 use libc::{c_int, c_uint, c_char};
 use freetype::freetype as ft;
@@ -17,16 +19,27 @@ use ft::{FT_Face, FT_Library, FT_Error, FT_Size_RequestRec_, FT_Size_Request_Typ
 
 use harfbuzz_sys::*;
 
-use owning_ref::StableAddress;
+use stable_deref_trait::StableDeref;
 
-use std::{mem, ptr, slice};
-use std::cell::Cell;
+use std::{mem, ptr};
 use std::ops::Deref;
 
-use cgmath::Point2;
+use cgmath::{Point2, Vector2};
 
+use typed_arena::Arena;
 use unicode_segmentation::{UWordBounds, UnicodeSegmentation};
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GlyphData {
+    /// The position to draw the glyph in, relative to the start of the word.
+    pub pos: Point2<i32>,
+    /// The glyph index.
+    pub glyph_index: u32,
+    /// The byte offset from the beginning of the text where the character drawing this
+    /// glyph begins.
+    pub str_index: usize
+}
 
 #[derive(Debug)]
 pub struct FTLib {
@@ -34,47 +47,48 @@ pub struct FTLib {
 }
 
 pub struct Face<B>
-    where B: StableAddress + Deref<Target=[u8]>
+    where B: StableDeref + Deref<Target=[u8]>
 {
-    font_buffer: B,
     ft_face: FT_Face,
     ft_size_request: FT_Size_RequestRec_,
     hb_font: *mut hb_font_t,
+    _font_buffer: B,
     _lib: FTLib
 }
 
 pub struct Shaper {
-    hb_buf: *mut hb_buffer_t
+    hb_buf: *mut hb_buffer_t,
+    glyph_arena: Arena<GlyphData>
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FontSize {
-    width: u32,
-    height: u32
+    pub width: u32,
+    pub height: u32
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DPI {
-    hori: u32,
-    vert: u32
+    pub hori: u32,
+    pub vert: u32
 }
 
 /// TODO: HANDLE BIDI TEXT
 pub struct WordIter<'a> {
     unicode_words: UWordBounds<'a>,
-    text: &'a str,
-    // Borrowed from a `Shaper`
-    hb_buf: *mut hb_buffer_t,
+    shaper: &'a Shaper,
+    // Borrowed from a `Face`
+    hb_font: *mut hb_font_t,
     // Borrowed from a `Face`
     ft_face: FT_Face
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Word<'a> {
-    /// The advance of the word. If this is 0, the advance hasn't been computed yet.
-    advance: Cell<i32>,
-    text: &'a str,
-    glyph_positions: &'a [hb_glyph_position_t],
-    glyph_infos: &'a [hb_glyph_info_t]
+    /// The advance of the word
+    pub advance: i32,
+    pub text: &'a str,
+    pub glyphs: &'a [GlyphData]
 }
 
 
@@ -82,7 +96,7 @@ impl FTLib {
     pub fn new() -> FTLib {
         let mut lib = ptr::null_mut();
         unsafe {
-            assert_eq!(FT_Error(0), ft::FT_New_Library(ptr::null_mut(), &mut lib));
+            assert_eq!(FT_Error(0), ft::FT_New_Library(ft_alloc::alloc_mem_rec(), &mut lib));
             ft::FT_Add_Default_Modules(lib);
         }
 
@@ -91,12 +105,12 @@ impl FTLib {
 }
 
 impl<B> Face<B>
-    where B: StableAddress + Deref<Target=[u8]>
+    where B: StableDeref + Deref<Target=[u8]>
 {
     pub fn new(font_buffer: B, face_index: i32, lib: &FTLib) -> Result<Face<B>, Error> {
         let mut ft_face = ptr::null_mut();
         unsafe {
-            let err_raw = ft::FT_New_Memory_Face( lib.lib, font_buffer.as_ptr(), font_buffer.len() as c_int, face_index, &mut ft_face);
+            let err_raw = ft::FT_New_Memory_Face(lib.lib, font_buffer.as_ptr(), font_buffer.len() as c_int, face_index, &mut ft_face);
 
             match Error::from_raw(err_raw).unwrap() {
                 Error::Ok => {
@@ -113,7 +127,6 @@ impl<B> Face<B>
 
 
                     Ok(Face {
-                        font_buffer,
                         ft_face,
                         hb_font,
                         ft_size_request: FT_Size_RequestRec_ {
@@ -124,6 +137,7 @@ impl<B> Face<B>
                             vertResolution: 0
                         },
 
+                        _font_buffer: font_buffer,
                         _lib: lib.clone()
                     })
                 },
@@ -138,7 +152,8 @@ impl Shaper {
     pub fn new() -> Shaper {
         unsafe {
             Shaper {
-                hb_buf: hb_buffer_create()
+                hb_buf: hb_buffer_create(),
+                glyph_arena: Arena::new()
             }
         }
     }
@@ -150,7 +165,7 @@ impl Shaper {
         font_size: FontSize,
         dpi: DPI
     ) -> Result<WordIter<'a>, Error>
-        where B: StableAddress + Deref<Target=[u8]>
+        where B: StableDeref + Deref<Target=[u8]>
     {
         let old_size_request = (
             FontSize {
@@ -176,61 +191,71 @@ impl Shaper {
             }
         }
 
-        unsafe {
-            // hb_buffer_add_utf8(self.hb_buf, text.as_ptr() as *const c_char, text.len() as i32, 0, text.len() as i32);
-            // hb_buffer_guess_segment_properties(self.hb_buf);
-
-            // hb_shape(face.hb_font, self.hb_buf, ptr::null(), 0);
-
-            // let (mut glyph_info_count, mut glyph_pos_count) = (0, 0);
-            // let glyph_pos_ptr = hb_buffer_get_glyph_infos(self.hb_buf, &mut glyph_pos_count);
-            // let glyph_info_ptr = hb_buffer_get_glyph_infos(self.hb_buf, &mut glyph_info_count);
-            // assert_eq!(glyph_info_count, glyph_pos_count);
-
-            // let glyph_positions = slice::from_raw_parts(glyph_pos_ptr, glyph_pos_count as usize);
-            // let glyph_infos = slice::from_raw_parts(glyph_info_ptr, glyph_info_count as usize);
-
-            Ok(WordIter {
-                unicode_words: text.split_word_bounds(),
-                text,
-                hb_buf: self.hb_buf,
-                ft_face: face.ft_face
-            })
-        }
+        Ok(WordIter {
+            unicode_words: text.split_word_bounds(),
+            shaper: self,
+            hb_font: face.hb_font,
+            ft_face: face.ft_face
+        })
     }
 }
 
 impl<'a> Word<'a> {
-    pub fn advance(&self) -> i32 {
-        match self.advance.get() {
-            0 => {
-                let advance = self.glyph_positions.iter().fold(0, |adv, p| adv + p.x_advance);
-                self.advance.set(advance);
-                advance
-            },
-            _ => self.advance.get()
-        }
-    }
-
+    #[inline]
     pub fn is_whitespace(&self) -> bool {
-        // If this is whitspace, then by definition no glyphs are available to draw
-        self.glyph_positions.len() == 0
+        self.text.chars().next().map(|c| c.is_whitespace()).unwrap_or(true)
     }
 }
 
-// impl<'a> Iterator for WordIter<'a> {
-//     type Item = Word<'a>;
+impl<'a> Iterator for WordIter<'a> {
+    type Item = Word<'a>;
 
-//     #[inline(always)]
-//     fn next(&mut self) -> Option<Word<'a>> {
-//         match self.unicode_words.next() {
-//             Some(word) => {
+    #[inline(always)]
+    fn next(&mut self) -> Option<Word<'a>> {
+        match self.unicode_words.next() {
+            Some(word) => unsafe {
+                let hb_buf = self.shaper.hb_buf;
+                hb_buffer_clear_contents(hb_buf);
+                hb_buffer_add_utf8(hb_buf, word.as_ptr() as *const c_char, word.len() as i32, 0, word.len() as i32);
+                hb_buffer_guess_segment_properties(hb_buf);
 
-//             }
-//             None => None
-//         }
-//     }
-// }
+                hb_shape(self.hb_font, hb_buf, ptr::null(), 0);
+
+                let (mut glyph_info_count, mut glyph_pos_count) = (0, 0);
+                let glyph_pos_ptr = hb_buffer_get_glyph_positions(hb_buf, &mut glyph_pos_count);
+                let glyph_info_ptr = hb_buffer_get_glyph_infos(hb_buf, &mut glyph_info_count);
+                assert_eq!(glyph_info_count, glyph_pos_count);
+
+                let mut cursor = Point2::new(0, 0);
+                let glyphs: &[GlyphData];
+                {
+                    let glyph_info_iter = (0..glyph_pos_count as isize).map(|i| {
+                        let pos = *glyph_pos_ptr.offset(i);
+                        let info = *glyph_info_ptr.offset(i);
+
+                        let data = GlyphData {
+                            pos: cursor + Vector2::new(pos.x_offset, pos.y_offset),
+                            glyph_index: info.codepoint,
+                            str_index: info.cluster as usize
+                        };
+                        cursor += Vector2::new(pos.x_advance, pos.y_advance) / 64;
+                        data
+                    });
+
+                    glyphs = self.shaper.glyph_arena.alloc_extend(glyph_info_iter);
+                }
+
+
+                Some(Word {
+                    advance: cursor.x,
+                    text: word,
+                    glyphs
+                })
+            }
+            None => None
+        }
+    }
+}
 
 impl Clone for FTLib {
     fn clone(&self) -> FTLib {
@@ -248,7 +273,7 @@ impl Drop for FTLib {
 }
 
 impl<B> Drop for Face<B>
-    where B: StableAddress + Deref<Target=[u8]>
+    where B: StableDeref + Deref<Target=[u8]>
 {
     fn drop(&mut self) {
         unsafe {
