@@ -5,9 +5,10 @@ extern crate libc;
 extern crate lazy_static;
 extern crate stable_deref_trait;
 extern crate typed_arena;
-extern crate unicode_segmentation;
-extern crate unicode_bidi;
-extern crate unicode_script;
+// extern crate unicode_segmentation;
+// extern crate unicode_bidi;
+// extern crate unicode_script;
+extern crate xi_unicode;
 extern crate cgmath;
 
 mod hb_funcs;
@@ -27,7 +28,7 @@ use std::ops::Deref;
 use cgmath::{Point2, Vector2};
 
 use typed_arena::Arena;
-use unicode_segmentation::{UWordBounds, UnicodeSegmentation};
+use xi_unicode::LineBreakIterator;
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -75,7 +76,9 @@ pub struct DPI {
 
 /// TODO: HANDLE BIDI TEXT
 pub struct WordIter<'a> {
-    unicode_words: UWordBounds<'a>,
+    line_breaks: LineBreakIterator<'a>,
+    last_break: usize,
+    text: &'a str,
     shaper: &'a Shaper,
     // Borrowed from a `Face`
     hb_font: *mut hb_font_t,
@@ -85,10 +88,12 @@ pub struct WordIter<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Word<'a> {
-    /// The advance of the word
-    pub advance: i32,
     pub text: &'a str,
-    pub glyphs: &'a [GlyphData]
+    pub glyphs: &'a [GlyphData],
+    /// The pixel advance of the word.
+    pub advance: i32,
+    /// Whether or not a line break is required after this word.
+    pub hard_break: bool,
 }
 
 
@@ -110,20 +115,33 @@ impl<B> Face<B>
     pub fn new(font_buffer: B, face_index: i32, lib: &FTLib) -> Result<Face<B>, Error> {
         let mut ft_face = ptr::null_mut();
         unsafe {
-            let err_raw = ft::FT_New_Memory_Face(lib.lib, font_buffer.as_ptr(), font_buffer.len() as c_int, face_index, &mut ft_face);
+            // Allocate the face in freetype, and ensure that it was created successfully
+            let err_raw = ft::FT_New_Memory_Face(
+                lib.lib,
+                font_buffer.as_ptr(),
+                font_buffer.len() as c_int,
+                face_index,
+                &mut ft_face
+            );
 
             match Error::from_raw(err_raw).unwrap() {
                 Error::Ok => {
-                    let hb_blob = hb_blob_create(font_buffer.as_ptr() as *const c_char, font_buffer.len() as c_uint, HB_MEMORY_MODE_READONLY, ptr::null_mut(), None);
-
+                    // Create the harfbuzz font
+                    let hb_blob = hb_blob_create(
+                        font_buffer.as_ptr() as *const c_char,
+                        font_buffer.len() as c_uint,
+                        HB_MEMORY_MODE_READONLY,
+                        ptr::null_mut(),
+                        None
+                    );
                     let hb_face = hb_face_create(hb_blob, face_index as c_uint);
                     hb_face_set_upem(hb_face, (*ft_face).units_per_EM as c_uint);
-
                     let hb_font = hb_font_create(hb_face);
                     hb_funcs::set_for_font(hb_font, ft_face);
 
-                    hb_blob_destroy(hb_blob);
+                    // Harfbuzz font creation cleanup
                     hb_face_destroy(hb_face);
+                    hb_blob_destroy(hb_blob);
 
 
                     Ok(Face {
@@ -167,6 +185,7 @@ impl Shaper {
     ) -> Result<WordIter<'a>, Error>
         where B: StableDeref + Deref<Target=[u8]>
     {
+        // Determine if we need to change the freetype font size, and change it if necessary
         let old_size_request = (
             FontSize {
                 width: face.ft_size_request.width as u32,
@@ -178,6 +197,7 @@ impl Shaper {
             }
         );
         if (font_size, dpi) != old_size_request {
+            // Change freetype font size
             let mut size_request = FT_Size_RequestRec_ {
                 type_: FT_Size_Request_Type__FT_SIZE_REQUEST_TYPE_NOMINAL,
                 width: font_size.width as i32,
@@ -192,18 +212,13 @@ impl Shaper {
         }
 
         Ok(WordIter {
-            unicode_words: text.split_word_bounds(),
+            line_breaks: LineBreakIterator::new(text),
+            last_break: 0,
+            text,
             shaper: self,
             hb_font: face.hb_font,
             ft_face: face.ft_face
         })
-    }
-}
-
-impl<'a> Word<'a> {
-    #[inline]
-    pub fn is_whitespace(&self) -> bool {
-        self.text.chars().next().map(|c| c.is_whitespace()).unwrap_or(true)
     }
 }
 
@@ -212,20 +227,44 @@ impl<'a> Iterator for WordIter<'a> {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Word<'a>> {
-        match self.unicode_words.next() {
-            Some(word) => unsafe {
-                let hb_buf = self.shaper.hb_buf;
+        let WordIter {
+            ref mut last_break,
+            ref mut line_breaks,
+            text,
+            shaper,
+            hb_font,
+            ft_face
+        } = *self;
+
+        // Transform the break index into a string slice, advancing the last_break index to the
+        // new line break.
+        let next_word = line_breaks.next()
+            .map(|(break_index, hard_break)| {
+                let lb = *last_break;
+                *last_break = break_index;
+
+                (&text[lb..break_index], hard_break)
+            });
+
+        match next_word {
+            Some((word, hard_break)) => unsafe {
+                let hb_buf = shaper.hb_buf;
+
+                // Add the word to the harfbuzz buffer, and shape it.
                 hb_buffer_clear_contents(hb_buf);
                 hb_buffer_add_utf8(hb_buf, word.as_ptr() as *const c_char, word.len() as i32, 0, word.len() as i32);
                 hb_buffer_guess_segment_properties(hb_buf);
+                hb_shape(hb_font, hb_buf, ptr::null(), 0);
 
-                hb_shape(self.hb_font, hb_buf, ptr::null(), 0);
 
+                // Retrieve the pointers to the glyph info from harfbuzz.
                 let (mut glyph_info_count, mut glyph_pos_count) = (0, 0);
                 let glyph_pos_ptr = hb_buffer_get_glyph_positions(hb_buf, &mut glyph_pos_count);
                 let glyph_info_ptr = hb_buffer_get_glyph_infos(hb_buf, &mut glyph_info_count);
                 assert_eq!(glyph_info_count, glyph_pos_count);
 
+                // Transform harfbuzz's glyph info into the rusty format, and add them to the
+                // arena.
                 let mut cursor = Point2::new(0, 0);
                 let glyphs: &[GlyphData];
                 {
@@ -242,14 +281,14 @@ impl<'a> Iterator for WordIter<'a> {
                         data
                     });
 
-                    glyphs = self.shaper.glyph_arena.alloc_extend(glyph_info_iter);
+                    glyphs = shaper.glyph_arena.alloc_extend(glyph_info_iter);
                 }
-
 
                 Some(Word {
                     advance: cursor.x,
                     text: word,
-                    glyphs
+                    glyphs,
+                    hard_break
                 })
             }
             None => None
@@ -294,106 +333,114 @@ impl Drop for Shaper {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
-    Ok = ft::FT_Err_Ok as isize,
-    CannotOpenResource = ft::FT_Err_Cannot_Open_Resource as isize,
-    UnknownFileFormat = ft::FT_Err_Unknown_File_Format as isize,
-    InvalidFileFormat = ft::FT_Err_Invalid_File_Format as isize,
-    InvalidVersion = ft::FT_Err_Invalid_Version as isize,
-    LowerModuleVersion = ft::FT_Err_Lower_Module_Version as isize,
-    InvalidArgument = ft::FT_Err_Invalid_Argument as isize,
-    UnimplementedFeature = ft::FT_Err_Unimplemented_Feature as isize,
-    InvalidTable = ft::FT_Err_Invalid_Table as isize,
-    InvalidOffset = ft::FT_Err_Invalid_Offset as isize,
-    ArrayTooLarge = ft::FT_Err_Array_Too_Large as isize,
-    MissingModule = ft::FT_Err_Missing_Module as isize,
-    MissingProperty = ft::FT_Err_Missing_Property as isize,
-    InvalidGlyphIndex = ft::FT_Err_Invalid_Glyph_Index as isize,
-    InvalidCharacterCode = ft::FT_Err_Invalid_Character_Code as isize,
-    InvalidGlyphFormat = ft::FT_Err_Invalid_Glyph_Format as isize,
-    CannotRenderGlyph = ft::FT_Err_Cannot_Render_Glyph as isize,
-    InvalidOutline = ft::FT_Err_Invalid_Outline as isize,
-    InvalidComposite = ft::FT_Err_Invalid_Composite as isize,
-    TooManyHints = ft::FT_Err_Too_Many_Hints as isize,
-    InvalidPixelSize = ft::FT_Err_Invalid_Pixel_Size as isize,
-    InvalidHandle = ft::FT_Err_Invalid_Handle as isize,
-    InvalidLibraryHandle = ft::FT_Err_Invalid_Library_Handle as isize,
-    InvalidDriverHandle = ft::FT_Err_Invalid_Driver_Handle as isize,
-    InvalidFaceHandle = ft::FT_Err_Invalid_Face_Handle as isize,
-    InvalidSizeHandle = ft::FT_Err_Invalid_Size_Handle as isize,
-    InvalidSlotHandle = ft::FT_Err_Invalid_Slot_Handle as isize,
-    InvalidCharMapHandle = ft::FT_Err_Invalid_CharMap_Handle as isize,
-    InvalidCacheHandle = ft::FT_Err_Invalid_Cache_Handle as isize,
-    InvalidStreamHandle = ft::FT_Err_Invalid_Stream_Handle as isize,
-    TooManyDrivers = ft::FT_Err_Too_Many_Drivers as isize,
-    TooManyExtensions = ft::FT_Err_Too_Many_Extensions as isize,
-    OutOfMemory = ft::FT_Err_Out_Of_Memory as isize,
-    UnlistedObject = ft::FT_Err_Unlisted_Object as isize,
-    CannotOpenStream = ft::FT_Err_Cannot_Open_Stream as isize,
-    InvalidStreamSeek = ft::FT_Err_Invalid_Stream_Seek as isize,
-    InvalidStreamSkip = ft::FT_Err_Invalid_Stream_Skip as isize,
-    InvalidStreamRead = ft::FT_Err_Invalid_Stream_Read as isize,
-    InvalidStreamOperation = ft::FT_Err_Invalid_Stream_Operation as isize,
-    InvalidFrameOperation = ft::FT_Err_Invalid_Frame_Operation as isize,
-    NestedFrameAccess = ft::FT_Err_Nested_Frame_Access as isize,
-    InvalidFrameRead = ft::FT_Err_Invalid_Frame_Read as isize,
-    RasterUninitialized = ft::FT_Err_Raster_Uninitialized as isize,
-    RasterCorrupted = ft::FT_Err_Raster_Corrupted as isize,
-    RasterOverflow = ft::FT_Err_Raster_Overflow as isize,
-    RasterNegativeHeight = ft::FT_Err_Raster_Negative_Height as isize,
-    TooManyCaches = ft::FT_Err_Too_Many_Caches as isize,
-    InvalidOpcode = ft::FT_Err_Invalid_Opcode as isize,
-    TooFewArguments = ft::FT_Err_Too_Few_Arguments as isize,
-    StackOverflow = ft::FT_Err_Stack_Overflow as isize,
-    CodeOverflow = ft::FT_Err_Code_Overflow as isize,
-    BadArgument = ft::FT_Err_Bad_Argument as isize,
-    DivideByZero = ft::FT_Err_Divide_By_Zero as isize,
-    InvalidReference = ft::FT_Err_Invalid_Reference as isize,
-    DebugOpCode = ft::FT_Err_Debug_OpCode as isize,
-    ENDFInExecStream = ft::FT_Err_ENDF_In_Exec_Stream as isize,
-    NestedDEFS = ft::FT_Err_Nested_DEFS as isize,
-    InvalidCodeRange = ft::FT_Err_Invalid_CodeRange as isize,
-    ExecutionTooLong = ft::FT_Err_Execution_Too_Long as isize,
-    TooManyFunctionDefs = ft::FT_Err_Too_Many_Function_Defs as isize,
-    TooManyInstructionDefs = ft::FT_Err_Too_Many_Instruction_Defs as isize,
-    TableMissing = ft::FT_Err_Table_Missing as isize,
-    HorizHeaderMissing = ft::FT_Err_Horiz_Header_Missing as isize,
-    LocationsMissing = ft::FT_Err_Locations_Missing as isize,
-    NameTableMissing = ft::FT_Err_Name_Table_Missing as isize,
-    CMapTableMissing = ft::FT_Err_CMap_Table_Missing as isize,
-    HmtxTableMissing = ft::FT_Err_Hmtx_Table_Missing as isize,
-    PostTableMissing = ft::FT_Err_Post_Table_Missing as isize,
-    InvalidHorizMetrics = ft::FT_Err_Invalid_Horiz_Metrics as isize,
-    InvalidCharMapFormat = ft::FT_Err_Invalid_CharMap_Format as isize,
-    InvalidPPem = ft::FT_Err_Invalid_PPem as isize,
-    InvalidVertMetrics = ft::FT_Err_Invalid_Vert_Metrics as isize,
-    CouldNotFindContext = ft::FT_Err_Could_Not_Find_Context as isize,
-    InvalidPostTableFormat = ft::FT_Err_Invalid_Post_Table_Format as isize,
-    InvalidPostTable = ft::FT_Err_Invalid_Post_Table as isize,
-    DEFInGlyfBytecode = ft::FT_Err_DEF_In_Glyf_Bytecode as isize,
-    MissingBitmap = ft::FT_Err_Missing_Bitmap as isize,
-    SyntaxError = ft::FT_Err_Syntax_Error as isize,
-    StackUnderflow = ft::FT_Err_Stack_Underflow as isize,
-    Ignore = ft::FT_Err_Ignore as isize,
-    NoUnicodeGlyphName = ft::FT_Err_No_Unicode_Glyph_Name as isize,
-    GlyphTooBig = ft::FT_Err_Glyph_Too_Big as isize,
-    MissingStartfontField = ft::FT_Err_Missing_Startfont_Field as isize,
-    MissingFontField = ft::FT_Err_Missing_Font_Field as isize,
-    MissingSizeField = ft::FT_Err_Missing_Size_Field as isize,
-    MissingFontboundingboxField = ft::FT_Err_Missing_Fontboundingbox_Field as isize,
-    MissingCharsField = ft::FT_Err_Missing_Chars_Field as isize,
-    MissingStartcharField = ft::FT_Err_Missing_Startchar_Field as isize,
-    MissingEncodingField = ft::FT_Err_Missing_Encoding_Field as isize,
-    MissingBbxField = ft::FT_Err_Missing_Bbx_Field as isize,
-    BbxTooBig = ft::FT_Err_Bbx_Too_Big as isize,
-    CorruptedFontHeader = ft::FT_Err_Corrupted_Font_Header as isize,
-    CorruptedFontGlyphs = ft::FT_Err_Corrupted_Font_Glyphs as isize,
-    Max = ft::FT_Err_Max as isize,
+    Ok = 0,
+    CannotOpenResource = 1,
+    UnknownFileFormat = 2,
+    InvalidFileFormat = 3,
+    InvalidVersion = 4,
+    LowerModuleVersion = 5,
+    InvalidArgument = 6,
+    UnimplementedFeature = 7,
+    InvalidTable = 8,
+    InvalidOffset = 9,
+    ArrayTooLarge = 10,
+    MissingModule = 11,
+    MissingProperty = 12,
+    InvalidGlyphIndex = 16,
+    InvalidCharacterCode = 17,
+    InvalidGlyphFormat = 18,
+    CannotRenderGlyph = 19,
+    InvalidOutline = 20,
+    InvalidComposite = 21,
+    TooManyHints = 22,
+    InvalidPixelSize = 23,
+    InvalidHandle = 32,
+    InvalidLibraryHandle = 33,
+    InvalidDriverHandle = 34,
+    InvalidFaceHandle = 35,
+    InvalidSizeHandle = 36,
+    InvalidSlotHandle = 37,
+    InvalidCharMapHandle = 38,
+    InvalidCacheHandle = 39,
+    InvalidStreamHandle = 40,
+
+    TooManyDrivers = 48,
+    TooManyExtensions = 49,
+
+    OutOfMemory = 64,
+    UnlistedObject = 65,
+
+    CannotOpenStream = 81,
+    InvalidStreamSeek = 82,
+    InvalidStreamSkip = 83,
+    InvalidStreamRead = 84,
+    InvalidStreamOperation = 85,
+    InvalidFrameOperation = 86,
+    NestedFrameAccess = 87,
+    InvalidFrameRead = 88,
+
+    RasterUninitialized = 96,
+    RasterCorrupted = 97,
+    RasterOverflow = 98,
+    RasterNegativeHeight = 99,
+
+    TooManyCaches = 112,
+
+    InvalidOpcode = 128,
+    TooFewArguments = 129,
+    StackOverflow = 130,
+    CodeOverflow = 131,
+    BadArgument = 132,
+    DivideByZero = 133,
+    InvalidReference = 134,
+    DebugOpCode = 135,
+    ENDFInExecStream = 136,
+    NestedDEFS = 137,
+    InvalidCodeRange = 138,
+    ExecutionTooLong = 139,
+    TooManyFunctionDefs = 140,
+    TooManyInstructionDefs = 141,
+    TableMissing = 142,
+    HorizHeaderMissing = 143,
+    LocationsMissing = 144,
+    NameTableMissing = 145,
+    CMapTableMissing = 146,
+    HmtxTableMissing = 147,
+    PostTableMissing = 148,
+    InvalidHorizMetrics = 149,
+    InvalidCharMapFormat = 150,
+    InvalidPPem = 151,
+    InvalidVertMetrics = 152,
+    CouldNotFindContext = 153,
+    InvalidPostTableFormat = 154,
+    InvalidPostTable = 155,
+    DEFInGlyfBytecode = 156,
+    MissingBitmap = 157,
+    SyntaxError = 160,
+    StackUnderflow = 161,
+    Ignore = 162,
+    NoUnicodeGlyphName = 163,
+    GlyphTooBig = 164,
+
+    MissingStartfontField = 176,
+    MissingFontField = 177,
+    MissingSizeField = 178,
+    MissingFontboundingboxField = 179,
+    MissingCharsField = 180,
+    MissingStartcharField = 181,
+    MissingEncodingField = 182,
+    MissingBbxField = 183,
+    BbxTooBig = 184,
+    CorruptedFontHeader = 185,
+    CorruptedFontGlyphs = 186,
+    Max = 187,
 }
 
 impl Error {
     pub fn from_raw(err: FT_Error) -> Option<Error> {
         let err_in_bounds = move |left, right| left <= err.0 && err.0 <= right;
 
+        // Make sure that the error is valid before transmuting it.
         let eib =
             err_in_bounds(0, 49) ||
             err_in_bounds(64, 65) ||
