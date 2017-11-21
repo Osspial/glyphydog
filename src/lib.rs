@@ -279,7 +279,6 @@ impl Shaper {
     {
         face.resize(font_size, dpi)?;
 
-        let glyph_offset = buffer.glyphs.len();
         let text_offset = buffer.text.len();
         buffer.text.push_str(text);
 
@@ -332,9 +331,9 @@ impl Shaper {
                     cursor += Vector2::new(pos.x_advance, pos.y_advance) / 64;
                     glyph_shaping
                 });
-                glyph_range.start = buffer.glyphs.len() + glyph_offset;
+                glyph_range.start = buffer.glyphs.len();
                 buffer.glyphs.extend(glyph_info_iter);
-                glyph_range.end = buffer.glyphs.len() + text_offset;
+                glyph_range.end = buffer.glyphs.len();
             }
 
             buffer.segments.push(RawShapedSegment {
@@ -383,8 +382,8 @@ impl ShapedBuffer {
     #[inline]
     pub fn get_segment<'a>(&'a self, index: usize) -> Option<ShapedSegment<'a>> {
         self.segments.get(index).cloned().map(|s| ShapedSegment {
-            text: &self.text[s.text_range],
-            shaped_glyphs: &self.glyphs[s.glyph_range],
+            text: &self.text.get(s.text_range).expect("bad text"),
+            shaped_glyphs: &self.glyphs.get(s.glyph_range).expect("bad range"),
             advance: s.advance,
             hard_break: s.hard_break
         })

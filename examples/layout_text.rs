@@ -21,7 +21,7 @@ fn main() {
     let mut face = Face::new(font_buf, 0, &lib).unwrap();
     let mut shaper = Shaper::new();
 
-    let mut output_image = vec![0; 128 * 128];
+    let mut output_image = vec![0; 256 * 256];
 
     let font_size = FontSize {
         width: 16*64,
@@ -33,6 +33,7 @@ fn main() {
     };
     let mut buffer = ShapedBuffer::new();
     shaper.shape_text("Γειά σου Κόσμε!", &mut face, font_size, dpi, &mut buffer).unwrap();
+    shaper.shape_text("Hello World!", &mut face, font_size, dpi, &mut buffer).unwrap();
     let mut cursor_x = 0;
     for i in 0..buffer.segments_len() {
         let segment = buffer.get_segment(i).unwrap();
@@ -44,7 +45,7 @@ fn main() {
 
             blit(
                 bitmap.buffer, bitmap.dims, bitmap.dims.into(),
-                &mut output_image, DimsRect::new(128, 128),
+                &mut output_image, DimsRect::new(256, 256),
                     (Vector2::new(cursor_x + metrics.hori_bearing.x, 32 - metrics.hori_bearing.y) + glyph.pos.to_vec()).cast().unwrap()
             );
         }
@@ -55,7 +56,7 @@ fn main() {
     let file = File::create("./layout_text.png").unwrap();
     let ref mut w = BufWriter::new(file);
 
-    let mut encoder = png::Encoder::new(w, 128, 128);
+    let mut encoder = png::Encoder::new(w, 256, 256);
     encoder.set(png::ColorType::Grayscale).set(png::BitDepth::Eight);
     let mut writer = encoder.write_header().unwrap();
     writer.write_image_data(&output_image).unwrap();
