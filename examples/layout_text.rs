@@ -1,6 +1,6 @@
 extern crate gliphydog;
 
-use gliphydog::{FTLib, Face, Shaper, FontSize, DPI};
+use gliphydog::{FTLib, Face, Shaper, FontSize, DPI, ShapedBuffer};
 use std::fs::File;
 use std::io::Read;
 
@@ -20,7 +20,14 @@ fn main() {
         hori: 72,
         vert: 72
     };
-    for word in shaper.shape_text("Hello World!", &face, font_size, dpi).unwrap() {
-        println!("{:#?}", word);
-    }
+    let mut buffer = ShapedBuffer::new();
+    shaper.shape_text("Hello World!", &face, font_size, dpi, &mut buffer).unwrap();
+    buffer.clear();
+    shaper.shape_text("Hello World!", &face, font_size, dpi, &mut buffer).unwrap();
+    // for i in 0..buffer.segments_len() {
+    //     println!("{:#?}", buffer.get_segment(i).unwrap());
+    // }
+    // for word in shaper.shape_text("Hello World!", &face, font_size, dpi).unwrap() {
+    //     println!("{:#?}", word);
+    // }
 }
