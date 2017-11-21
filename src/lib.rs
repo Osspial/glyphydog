@@ -22,11 +22,11 @@ use harfbuzz_sys::*;
 
 use stable_deref_trait::StableDeref;
 
-use std::{mem, ptr};
+use std::{mem, slice, ptr};
 use std::ops::{Deref, Range};
 
 use cgmath::{Point2, Vector2};
-use cgmath_geometry::DimsRect;
+use cgmath_geometry::{DimsRect, Rectangle};
 
 use xi_unicode::LineBreakIterator;
 
@@ -71,10 +71,10 @@ pub struct ShapedBuffer {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ShapedSegment<'a> {
-    text: &'a str,
-    shaped_glyphs: &'a [ShapedGlyph],
-    advance: i32,
-    hard_break: bool
+    pub text: &'a str,
+    pub shaped_glyphs: &'a [ShapedGlyph],
+    pub advance: i32,
+    pub hard_break: bool
 }
 
 #[derive(Debug, Clone)]
@@ -94,12 +94,55 @@ pub struct ShapedGlyph {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GlyphMetrics {
+    pub dims: DimsRect<i32>,
+    pub hori_bearing: Vector2<i32>,
+    pub hori_advance: i32,
+    pub vert_bearing: Vector2<i32>,
+    pub vert_advance: i32
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphMetricsPx {
     pub dims: DimsRect<i32>,
     pub hori_bearing: Vector2<i32>,
-    // pub vert_bearing: Vector2<i32>,
     pub hori_advance: i32,
-    // pub vert_advance: i32
+    pub vert_bearing: Vector2<i32>,
+    pub vert_advance: i32
+}
+
+pub struct GlyphSlot<'a> {
+    glyph_slot: &'a mut ft::FT_GlyphSlotRec_
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Bitmap<'a> {
+    pub dims: DimsRect<u32>,
+    pub pitch: i32,
+    pub buffer: &'a [u8],
+    pub pixel_mode: PixelMode
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PixelMode {
+    Mono,
+    Gray,
+    Gray2,
+    Gray4,
+    Lcd,
+    LcdV,
+    Bgra
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RenderMode {
+    Normal = ft::FT_Render_Mode__FT_RENDER_MODE_NORMAL as isize,
+    Light = ft::FT_Render_Mode__FT_RENDER_MODE_LIGHT as isize,
+    Mono = ft::FT_Render_Mode__FT_RENDER_MODE_MONO as isize,
+    Lcd = ft::FT_Render_Mode__FT_RENDER_MODE_LCD as isize,
+    LcdV = ft::FT_Render_Mode__FT_RENDER_MODE_LCD_V as isize,
 }
 
 
@@ -170,6 +213,49 @@ impl<B> Face<B>
 
         }
     }
+
+    pub fn load_glyph<'a>(&'a mut self, glyph_index: u32, font_size: FontSize, dpi: DPI) -> Result<GlyphSlot<'a>, Error> {
+        self.resize(font_size, dpi)?;
+
+        unsafe {
+            let error = ft::FT_Load_Glyph(self.ft_face, glyph_index, 0);
+            match error {
+                FT_Error(0) => Ok(GlyphSlot {
+                    glyph_slot: &mut *(*self.ft_face).glyph
+                }),
+                FT_Error(_) => Err(Error::from_raw(error).unwrap())
+            }
+        }
+    }
+
+    fn resize(&mut self, font_size: FontSize, dpi: DPI) -> Result<(), Error> {
+        // Determine if we need to change the freetype font size, and change it if necessary
+        let old_size_request = (
+            FontSize {
+                width: self.ft_size_request.width as u32,
+                height: self.ft_size_request.height as u32
+            },
+            DPI {
+                hori: self.ft_size_request.horiResolution,
+                vert: self.ft_size_request.vertResolution
+            }
+        );
+        if (font_size, dpi) != old_size_request {
+            // Change freetype font size
+            let mut size_request = FT_Size_RequestRec_ {
+                type_: FT_Size_Request_Type__FT_SIZE_REQUEST_TYPE_NOMINAL,
+                width: font_size.width as i32,
+                height: font_size.height as i32,
+                horiResolution: dpi.hori,
+                vertResolution: dpi.vert
+            };
+            let error = unsafe{ ft::FT_Request_Size(self.ft_face, &mut size_request) };
+            if FT_Error(0) != error {
+                return Err(Error::from_raw(error).unwrap());
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Shaper {
@@ -184,38 +270,14 @@ impl Shaper {
     #[inline]
     pub fn shape_text<B>(&mut self,
         text: &str,
-        face: &Face<B>,
+        face: &mut Face<B>,
         font_size: FontSize,
         dpi: DPI,
         buffer: &mut ShapedBuffer
     ) -> Result<(), Error>
         where B: StableDeref + Deref<Target=[u8]>
     {
-        // Determine if we need to change the freetype font size, and change it if necessary
-        let old_size_request = (
-            FontSize {
-                width: face.ft_size_request.width as u32,
-                height: face.ft_size_request.height as u32
-            },
-            DPI {
-                hori: face.ft_size_request.horiResolution,
-                vert: face.ft_size_request.vertResolution
-            }
-        );
-        if (font_size, dpi) != old_size_request {
-            // Change freetype font size
-            let mut size_request = FT_Size_RequestRec_ {
-                type_: FT_Size_Request_Type__FT_SIZE_REQUEST_TYPE_NOMINAL,
-                width: font_size.width as i32,
-                height: font_size.height as i32,
-                horiResolution: dpi.hori,
-                vertResolution: dpi.vert
-            };
-            let error = unsafe{ ft::FT_Request_Size(face.ft_face, &mut size_request) };
-            if FT_Error(0) != error {
-                return Err(Error::from_raw(error).unwrap());
-            }
-        }
+        face.resize(font_size, dpi)?;
 
         let glyph_offset = buffer.glyphs.len();
         let text_offset = buffer.text.len();
@@ -326,6 +388,69 @@ impl ShapedBuffer {
             advance: s.advance,
             hard_break: s.hard_break
         })
+    }
+}
+
+impl<'a> GlyphSlot<'a> {
+    pub fn metrics(&self) -> GlyphMetrics {
+        let ft_metrics = self.glyph_slot.metrics;
+
+        GlyphMetrics {
+            dims: DimsRect::new(ft_metrics.width, ft_metrics.height),
+            hori_bearing: Vector2::new(ft_metrics.horiBearingX, ft_metrics.horiBearingY),
+            hori_advance: ft_metrics.horiAdvance,
+            vert_bearing: Vector2::new(ft_metrics.vertBearingX, ft_metrics.vertBearingY),
+            vert_advance: ft_metrics.vertAdvance,
+        }
+    }
+
+    pub fn render_glyph(&mut self, render_mode: RenderMode) -> Result<Bitmap<'a>, Error> {
+        unsafe {
+            let ft_render_mode = mem::transmute(render_mode);
+            match ft::FT_Render_Glyph(self.glyph_slot, ft_render_mode) {
+                FT_Error(0) => Ok(self.bitmap().expect("bad bitmap")),
+                error => Err(Error::from_raw(error).unwrap())
+            }
+        }
+    }
+
+    pub fn bitmap(&self) -> Option<Bitmap<'a>> {
+        let ft_bitmap = self.glyph_slot.bitmap;
+        match ft_bitmap.pixel_mode {
+            0 => None,
+            _ => Some(Bitmap {
+                dims: DimsRect::new(ft_bitmap.width as u32, ft_bitmap.rows as u32),
+                pitch: ft_bitmap.pitch,
+                buffer: match ft_bitmap.buffer as usize {
+                    // If we just returned a from_raw_parts when the buffer was null, the null pointer
+                    // optimization would kick in and turn the `Some` into a `None`.
+                    0x0 => &[],
+                    _ => unsafe{ slice::from_raw_parts(ft_bitmap.buffer, (ft_bitmap.pitch.abs() as u32 * ft_bitmap.rows) as usize) }
+                },
+                pixel_mode: match ft_bitmap.pixel_mode as c_int {
+                    ft::FT_Pixel_Mode__FT_PIXEL_MODE_MONO  => PixelMode::Mono,
+                    ft::FT_Pixel_Mode__FT_PIXEL_MODE_GRAY  => PixelMode::Gray,
+                    ft::FT_Pixel_Mode__FT_PIXEL_MODE_GRAY2 => PixelMode::Gray2,
+                    ft::FT_Pixel_Mode__FT_PIXEL_MODE_GRAY4 => PixelMode::Gray4,
+                    ft::FT_Pixel_Mode__FT_PIXEL_MODE_LCD   => PixelMode::Lcd,
+                    ft::FT_Pixel_Mode__FT_PIXEL_MODE_LCD_V => PixelMode::LcdV,
+                    ft::FT_Pixel_Mode__FT_PIXEL_MODE_BGRA  => PixelMode::Bgra,
+                    _ => return None
+                }
+            })
+        }
+    }
+}
+
+impl From<GlyphMetrics> for GlyphMetricsPx {
+    fn from(metrics: GlyphMetrics) -> GlyphMetricsPx {
+        GlyphMetricsPx {
+            dims: DimsRect::new(metrics.dims.width() / 64, metrics.dims.height() / 64),
+            hori_bearing: metrics.hori_bearing / 64,
+            hori_advance: metrics.hori_advance / 64,
+            vert_bearing: metrics.vert_bearing / 64,
+            vert_advance: metrics.vert_advance / 64,
+        }
     }
 }
 
