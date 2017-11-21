@@ -16,3 +16,6 @@ typed-arena = "1.3"
 xi-unicode = "0.1"
 cgmath = { git = "https://github.com/Osspial/cgmath", branch = "prs_merged"}
 cgmath-geometry = {git = "https://github.com/Osspial/cgmath-geometry"}
+
+[dev-dependencies]
+png = "0.11"
