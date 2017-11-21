@@ -1,9 +1,9 @@
-extern crate gliphydog;
+extern crate glyphydog;
 extern crate cgmath_geometry;
 extern crate cgmath;
 extern crate png;
 
-use gliphydog::{FTLib, Face, Shaper, FontSize, DPI, ShapedBuffer, RenderMode, GlyphMetricsPx};
+use glyphydog::{FTLib, Face, Shaper, FontSize, DPI, ShapedBuffer, RenderMode, GlyphMetricsPx};
 use std::fs::File;
 use std::io::Read;
 
