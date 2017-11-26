@@ -442,6 +442,20 @@ impl<'a> GlyphSlot<'a> {
     }
 }
 
+impl FontSize {
+    #[inline]
+    pub fn new(width: u32, height: u32) -> FontSize {
+        FontSize{ width, height }
+    }
+}
+
+impl DPI {
+    #[inline]
+    pub fn new(hori: u32, vert: u32) -> DPI {
+        DPI{ hori, vert }
+    }
+}
+
 impl From<GlyphMetrics> for GlyphMetricsPx {
     fn from(metrics: GlyphMetrics) -> GlyphMetricsPx {
         GlyphMetricsPx {
