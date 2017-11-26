@@ -463,6 +463,15 @@ impl Clone for FTLib {
     }
 }
 
+impl<B> Clone for Face<B>
+    where B: StableDeref + Deref<Target=[u8]> + Clone
+{
+    fn clone(&self) -> Face<B> {
+        let buf = self._font_buffer.clone();
+        Face::new(buf, unsafe{ (*self.ft_face).face_index }, &self._lib).unwrap()
+    }
+}
+
 impl Drop for FTLib {
     fn drop(&mut self) {
         unsafe{ ft::FT_Done_Library(self.lib) };
