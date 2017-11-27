@@ -53,7 +53,7 @@ pub struct Shaper {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FontSize {
+pub struct FaceSize {
     pub width: u32,
     pub height: u32
 }
@@ -216,8 +216,8 @@ impl<B> Face<B>
         }
     }
 
-    pub fn load_glyph<'a>(&'a mut self, glyph_index: u32, font_size: FontSize, dpi: DPI) -> Result<GlyphSlot<'a>, Error> {
-        self.resize(font_size, dpi)?;
+    pub fn load_glyph<'a>(&'a mut self, glyph_index: u32, face_size: FaceSize, dpi: DPI) -> Result<GlyphSlot<'a>, Error> {
+        self.resize(face_size, dpi)?;
 
         unsafe {
             let error = ft::FT_Load_Glyph(self.ft_face, glyph_index, 0);
@@ -230,10 +230,10 @@ impl<B> Face<B>
         }
     }
 
-    fn resize(&mut self, font_size: FontSize, dpi: DPI) -> Result<(), Error> {
+    fn resize(&mut self, face_size: FaceSize, dpi: DPI) -> Result<(), Error> {
         // Determine if we need to change the freetype font size, and change it if necessary
         let old_size_request = (
-            FontSize {
+            FaceSize {
                 width: self.ft_size_request.width as u32,
                 height: self.ft_size_request.height as u32
             },
@@ -242,12 +242,12 @@ impl<B> Face<B>
                 vert: self.ft_size_request.vertResolution
             }
         );
-        if (font_size, dpi) != old_size_request {
+        if (face_size, dpi) != old_size_request {
             // Change freetype font size
             let mut size_request = FT_Size_RequestRec_ {
                 type_: FT_Size_Request_Type__FT_SIZE_REQUEST_TYPE_NOMINAL,
-                width: font_size.width as i32,
-                height: font_size.height as i32,
+                width: face_size.width as i32,
+                height: face_size.height as i32,
                 horiResolution: dpi.hori,
                 vertResolution: dpi.vert
             };
@@ -273,13 +273,13 @@ impl Shaper {
     pub fn shape_text<B>(&mut self,
         text: &str,
         face: &mut Face<B>,
-        font_size: FontSize,
+        face_size: FaceSize,
         dpi: DPI,
         buffer: &mut ShapedBuffer
     ) -> Result<(), Error>
         where B: StableDeref + Deref<Target=[u8]>
     {
-        face.resize(font_size, dpi)?;
+        face.resize(face_size, dpi)?;
 
         let glyph_offset = buffer.glyphs.len();
         let text_offset = buffer.text.len();
@@ -444,10 +444,10 @@ impl<'a> GlyphSlot<'a> {
     }
 }
 
-impl FontSize {
+impl FaceSize {
     #[inline]
-    pub fn new(width: u32, height: u32) -> FontSize {
-        FontSize{ width, height }
+    pub fn new(width: u32, height: u32) -> FaceSize {
+        FaceSize{ width, height }
     }
 }
 
