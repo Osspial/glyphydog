@@ -10,6 +10,8 @@ extern crate stable_deref_trait;
 extern crate xi_unicode;
 extern crate cgmath;
 extern crate cgmath_geometry;
+#[macro_use]
+extern crate derive_error;
 
 mod hb_funcs;
 mod ft_alloc;
@@ -512,7 +514,7 @@ impl Drop for Shaper {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Error)]
 pub enum Error {
     Ok = 0,
     CannotOpenResource = 1,
