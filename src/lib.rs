@@ -64,7 +64,7 @@ pub struct DPI {
     pub vert: u32
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct ShapedBuffer {
     glyphs: Vec<ShapedGlyph>,
     segments: Vec<RawShapedSegment>,
@@ -79,7 +79,7 @@ pub struct ShapedSegment<'a> {
     pub hard_break: bool
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct RawShapedSegment {
     text_range: Range<usize>,
     glyph_range: Range<usize>,
