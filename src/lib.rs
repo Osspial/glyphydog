@@ -25,7 +25,9 @@ use harfbuzz_sys::*;
 use stable_deref_trait::StableDeref;
 
 use std::{mem, slice, ptr};
+use std::path::Path;
 use std::ops::{Deref, Range};
+use std::ffi::CString;
 
 use cgmath::{Point2, Vector2};
 use cgmath_geometry::{DimsRect, Rectangle};
@@ -38,9 +40,7 @@ pub struct FTLib {
     lib: FT_Library
 }
 
-pub struct Face<B>
-    where B: StableDeref + Deref<Target=[u8]>
-{
+pub struct Face<B> {
     ft_face: FT_Face,
     ft_size_request: FT_Size_RequestRec_,
     hb_font: *mut hb_font_t,
@@ -160,6 +160,78 @@ impl FTLib {
     }
 }
 
+impl Face<()> {
+    pub fn new_path<P: AsRef<Path>>(path: P, face_index: i32, lib: &FTLib) -> Result<Face<()>, Error> {
+        unsafe {
+            let path_canon = path.as_ref().canonicalize().map_err(|_| Error::CannotOpenResource)?;
+            let path_c = CString::new(path_canon.to_str().ok_or(Error::CannotOpenResource)?.to_owned()).map_err(|_| Error::CannotOpenResource)?;
+
+            let mut ft_face = ptr::null_mut();
+
+            // Allocate the face in freetype, and ensure that it was created successfully
+            let err_raw = ft::FT_New_Face(
+                lib.lib,
+                path_c.as_ptr(),
+                face_index,
+                &mut ft_face
+            );
+
+            match Error::from_raw(err_raw).unwrap() {
+                Error::Ok => {
+                    use libc::c_void;
+                    unsafe extern "C" fn reference_table(_: *mut hb_face_t, tag: hb_tag_t, user_data: *mut c_void) -> *mut hb_blob_t {
+                        let ft_face = user_data as FT_Face;
+                        let mut len = 0;
+
+                        if FT_Error(0) != ft::FT_Load_Sfnt_Table(ft_face, tag, 0, ptr::null_mut(), &mut len) {
+                            return ptr::null_mut();
+                        }
+
+                        let mut buf = vec![0; len as usize];
+                        if FT_Error(0) != ft::FT_Load_Sfnt_Table(ft_face, tag, 0, buf.as_mut_ptr() as *mut ft::FT_Byte, &mut len) {
+                            return ptr::null_mut();
+                        }
+
+                        hb_blob_create(
+                            buf.as_mut_ptr(), len, HB_MEMORY_MODE_WRITABLE,
+                            Box::into_raw(Box::new(buf)) as *mut c_void, Some(free_ref_table)
+                        )
+                    }
+                    unsafe extern "C" fn free_ref_table(table: *mut c_void) {
+                        Box::from_raw(table as *mut Vec<c_char>);
+                    }
+
+                    // Create the harfbuzz font
+                    let hb_face = hb_face_create_for_tables(Some(reference_table), ft_face as *mut c_void, None);
+                    hb_face_set_upem(hb_face, (*ft_face).units_per_EM as c_uint);
+                    let hb_font = hb_font_create(hb_face);
+                    hb_funcs::set_for_font(hb_font, ft_face);
+
+                    // Harfbuzz font creation cleanup
+                    hb_face_destroy(hb_face);
+
+
+                    Ok(Face {
+                        ft_face,
+                        hb_font,
+                        ft_size_request: FT_Size_RequestRec_ {
+                            type_: FT_Size_Request_Type__FT_SIZE_REQUEST_TYPE_NOMINAL,
+                            width: -1,
+                            height: -1,
+                            horiResolution: 0,
+                            vertResolution: 0
+                        },
+
+                        _font_buffer: (),
+                        _lib: lib.clone()
+                    })
+                },
+                err => Err(err)
+            }
+        }
+    }
+}
+
 impl<B> Face<B>
     where B: StableDeref + Deref<Target=[u8]>
 {
@@ -212,10 +284,11 @@ impl<B> Face<B>
                 },
                 err => Err(err)
             }
-
         }
     }
+}
 
+impl<B> Face<B> {
     pub fn load_glyph<'a>(&'a mut self, glyph_index: u32, face_size: FaceSize, dpi: DPI) -> Result<GlyphSlot<'a>, Error> {
         self.resize(face_size, dpi)?;
 
@@ -276,9 +349,7 @@ impl Shaper {
         face_size: FaceSize,
         dpi: DPI,
         buffer: &mut ShapedBuffer
-    ) -> Result<(), Error>
-        where B: StableDeref + Deref<Target=[u8]>
-    {
+    ) -> Result<(), Error> {
         face.resize(face_size, dpi)?;
 
         let glyph_offset = buffer.glyphs.len();
@@ -494,9 +565,7 @@ impl Drop for FTLib {
     }
 }
 
-impl<B> Drop for Face<B>
-    where B: StableDeref + Deref<Target=[u8]>
-{
+impl<B> Drop for Face<B> {
     fn drop(&mut self) {
         unsafe {
             hb_font_destroy(self.hb_font);
