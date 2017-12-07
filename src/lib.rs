@@ -115,14 +115,14 @@ pub struct GlyphMetricsPx {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FontMetrics {
-    units_per_em: u16,
-    ascender: i16,
-    descender: i16,
-    height: i16,
-    max_advance_width: i16,
-    max_advance_height: i16,
-    underline_position: i16,
-    underline_thickness: i16
+    pub units_per_em: u16,
+    pub ascender: i16,
+    pub descender: i16,
+    pub height: i16,
+    pub max_advance_width: i16,
+    pub max_advance_height: i16,
+    pub underline_position: i16,
+    pub underline_thickness: i16
 }
 
 pub struct GlyphSlot<'a> {
