@@ -316,7 +316,7 @@ impl<B> Face<B> {
     }
 
     #[inline]
-    pub fn font_metrics(&self) -> FontMetrics {
+    pub fn metrics(&self) -> FontMetrics {
         let ft_face_ref = unsafe{ &*self.ft_face };
         FontMetrics {
             units_per_em: ft_face_ref.units_per_EM,
