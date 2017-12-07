@@ -3,7 +3,7 @@ extern crate cgmath_geometry;
 extern crate cgmath;
 extern crate png;
 
-use glyphydog::{FTLib, Face, Shaper, FontSize, DPI, ShapedBuffer, RenderMode, GlyphMetricsPx};
+use glyphydog::{FTLib, Face, Shaper, FaceSize, DPI, ShapedBuffer, RenderMode, GlyphMetricsPx};
 use std::fs::File;
 use std::io::Read;
 
@@ -14,16 +14,13 @@ use cgmath::{Vector2, EuclideanSpace};
 use cgmath_geometry::{Rectangle, OffsetRect, DimsRect};
 
 fn main() {
-    let mut font_buf = vec![];
-    File::open("./DejaVuSans.ttf").unwrap().read_to_end(&mut font_buf).unwrap();
-
     let lib = FTLib::new();
-    let mut face = Face::new(font_buf, 0, &lib).unwrap();
+    let mut face = Face::new_path("./DejaVuSans.ttf", 0, &lib).unwrap();
     let mut shaper = Shaper::new();
 
     let mut output_image = vec![0; 256 * 256];
 
-    let font_size = FontSize {
+    let font_size = FaceSize {
         width: 16*64,
         height: 16*64
     };
