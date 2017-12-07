@@ -113,6 +113,18 @@ pub struct GlyphMetricsPx {
     pub vert_advance: i32
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FontMetrics {
+    units_per_em: u16,
+    ascender: i16,
+    descender: i16,
+    height: i16,
+    max_advance_width: i16,
+    max_advance_height: i16,
+    underline_position: i16,
+    underline_thickness: i16
+}
+
 pub struct GlyphSlot<'a> {
     glyph_slot: &'a mut ft::FT_GlyphSlotRec_
 }
@@ -300,6 +312,21 @@ impl<B> Face<B> {
                 }),
                 FT_Error(_) => Err(Error::from_raw(error).unwrap())
             }
+        }
+    }
+
+    #[inline]
+    pub fn font_metrics(&self) -> FontMetrics {
+        let ft_face_ref = unsafe{ &*self.ft_face };
+        FontMetrics {
+            units_per_em: ft_face_ref.units_per_EM,
+            ascender: ft_face_ref.ascender,
+            descender: ft_face_ref.descender,
+            height: ft_face_ref.height,
+            max_advance_width: ft_face_ref.max_advance_width,
+            max_advance_height: ft_face_ref.max_advance_height,
+            underline_position: ft_face_ref.underline_position,
+            underline_thickness: ft_face_ref.underline_thickness,
         }
     }
 
