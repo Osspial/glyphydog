@@ -98,7 +98,7 @@ pub struct ShapedGlyph {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct GlyphMetrics {
+pub struct GlyphMetrics266 {
     pub dims: DimsRect<i32>,
     pub hori_bearing: Vector2<i32>,
     pub hori_advance: i32,
@@ -116,7 +116,7 @@ pub struct GlyphMetricsPx {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FontMetrics {
+pub struct FontMetricsFU {
     pub units_per_em: u16,
     pub ascender: i16,
     pub descender: i16,
@@ -125,6 +125,18 @@ pub struct FontMetrics {
     pub max_advance_height: i16,
     pub underline_position: i16,
     pub underline_thickness: i16
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FontMetrics266 {
+    pub x_ppem: u16,
+    pub y_ppem: u16,
+    pub x_scale: i32,
+    pub y_scale: i32,
+    pub ascender: i32,
+    pub descender: i32,
+    pub height: i32,
+    pub max_advance: i32
 }
 
 pub struct GlyphSlot<'a> {
@@ -351,9 +363,9 @@ impl<B> Face<B> {
     }
 
     #[inline]
-    pub fn metrics(&self) -> FontMetrics {
+    pub fn metrics_font_units(&self) -> FontMetricsFU {
         let ft_face_ref = unsafe{ &*self.ft_face };
-        FontMetrics {
+        FontMetricsFU {
             units_per_em: ft_face_ref.units_per_EM,
             ascender: ft_face_ref.ascender,
             descender: ft_face_ref.descender,
@@ -363,6 +375,23 @@ impl<B> Face<B> {
             underline_position: ft_face_ref.underline_position,
             underline_thickness: ft_face_ref.underline_thickness,
         }
+    }
+
+    #[inline]
+    pub fn metrics_sized(&mut self, face_size: FaceSize, dpi: DPI) -> Result<FontMetrics266, Error> {
+        self.resize(face_size, dpi)?;
+
+        let size_metrics = unsafe{ &(*(*self.ft_face).size).metrics };
+        Ok(FontMetrics266 {
+            x_ppem: size_metrics.x_ppem,
+            y_ppem: size_metrics.y_ppem,
+            x_scale: size_metrics.x_scale,
+            y_scale: size_metrics.y_scale,
+            ascender: size_metrics.ascender,
+            descender: size_metrics.descender,
+            height: size_metrics.height,
+            max_advance: size_metrics.max_advance,
+        })
     }
 
     fn resize(&mut self, face_size: FaceSize, dpi: DPI) -> Result<(), Error> {
@@ -526,10 +555,10 @@ impl ShapedBuffer {
 }
 
 impl<'a> GlyphSlot<'a> {
-    pub fn metrics(&self) -> GlyphMetrics {
+    pub fn metrics(&self) -> GlyphMetrics266 {
         let ft_metrics = self.glyph_slot.metrics;
 
-        GlyphMetrics {
+        GlyphMetrics266 {
             dims: DimsRect::new(ft_metrics.width, ft_metrics.height),
             hori_bearing: Vector2::new(ft_metrics.horiBearingX, ft_metrics.horiBearingY),
             hori_advance: ft_metrics.horiAdvance,
@@ -590,8 +619,8 @@ impl DPI {
     }
 }
 
-impl From<GlyphMetrics> for GlyphMetricsPx {
-    fn from(metrics: GlyphMetrics) -> GlyphMetricsPx {
+impl From<GlyphMetrics266> for GlyphMetricsPx {
+    fn from(metrics: GlyphMetrics266) -> GlyphMetricsPx {
         GlyphMetricsPx {
             dims: DimsRect::new(metrics.dims.width() / 64, metrics.dims.height() / 64),
             hori_bearing: metrics.hori_bearing / 64,
