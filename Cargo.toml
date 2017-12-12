@@ -7,6 +7,7 @@ authors = ["Osspial <osspial@gmail.com>"]
 harfbuzz-sys = "0.1"
 freetype = { git = "https://github.com/Osspial/rust-freetype" }
 libc = "0.2"
+bitflags = "1.0"
 lazy_static = "0.2"
 stable_deref_trait = "1.0"
 typed-arena = "1.3"

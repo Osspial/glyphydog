@@ -2,6 +2,8 @@ extern crate harfbuzz_sys;
 extern crate freetype;
 extern crate libc;
 #[macro_use]
+extern crate bitflags;
+#[macro_use]
 extern crate lazy_static;
 extern crate stable_deref_trait;
 // extern crate unicode_segmentation;
@@ -159,6 +161,28 @@ pub enum RenderMode {
     LcdV = ft::FT_Render_Mode__FT_RENDER_MODE_LCD_V as isize,
 }
 
+bitflags!{
+    pub struct LoadFlags: c_uint {
+        const NO_SCALE = ft::FT_LOAD_NO_SCALE;
+        const NO_HINTING = ft::FT_LOAD_NO_HINTING;
+        const RENDER = ft::FT_LOAD_RENDER;
+        const NO_BITMAP = ft::FT_LOAD_NO_BITMAP;
+        const VERTICAL_LAYOUT = ft::FT_LOAD_VERTICAL_LAYOUT;
+        const FORCE_AUTOHINT = ft::FT_LOAD_FORCE_AUTOHINT;
+        const CROP_BITMAP = ft::FT_LOAD_CROP_BITMAP;
+        const PEDANTIC = ft::FT_LOAD_PEDANTIC;
+        const IGNORE_GLOBAL_ADVANCE_WIDTH = ft::FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH;
+        const NO_RECURSE = ft::FT_LOAD_NO_RECURSE;
+        const IGNORE_TRANSFORM = ft::FT_LOAD_IGNORE_TRANSFORM;
+        const MONOCHROME = ft::FT_LOAD_MONOCHROME;
+        const LINEAR_DESIGN = ft::FT_LOAD_LINEAR_DESIGN;
+        const NO_AUTOHINT = ft::FT_LOAD_NO_AUTOHINT;
+        const COLOR = ft::FT_LOAD_COLOR;
+        const COMPUTE_METRICS = ft::FT_LOAD_COMPUTE_METRICS;
+        const BITMAP_METRICS_ONLY = ft::FT_LOAD_BITMAP_METRICS_ONLY;
+    }
+}
+
 
 impl FTLib {
     pub fn new() -> FTLib {
@@ -301,11 +325,22 @@ impl<B> Face<B>
 }
 
 impl<B> Face<B> {
-    pub fn load_glyph<'a>(&'a mut self, glyph_index: u32, face_size: FaceSize, dpi: DPI) -> Result<GlyphSlot<'a>, Error> {
+    pub fn load_glyph<'a>(
+        &'a mut self,
+        glyph_index: u32,
+        face_size: FaceSize,
+        dpi: DPI,
+        load_flags: LoadFlags,
+        hint_algo: RenderMode
+    ) -> Result<GlyphSlot<'a>, Error>
+    {
         self.resize(face_size, dpi)?;
+        let mut load_flags = load_flags.bits as c_int;
 
         unsafe {
-            let error = ft::FT_Load_Glyph(self.ft_face, glyph_index, 0);
+            load_flags |= (mem::transmute::<_, c_int>(hint_algo) & 16) << 16;
+
+            let error = ft::FT_Load_Glyph(self.ft_face, glyph_index, load_flags);
             match error {
                 FT_Error(0) => Ok(GlyphSlot {
                     glyph_slot: &mut *(*self.ft_face).glyph

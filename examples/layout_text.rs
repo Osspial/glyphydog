@@ -3,7 +3,7 @@ extern crate cgmath_geometry;
 extern crate cgmath;
 extern crate png;
 
-use glyphydog::{FTLib, Face, Shaper, FaceSize, DPI, ShapedBuffer, RenderMode, GlyphMetricsPx};
+use glyphydog::{FTLib, Face, Shaper, FaceSize, DPI, ShapedBuffer, RenderMode, LoadFlags, GlyphMetricsPx};
 use std::fs::File;
 use std::io::Read;
 
@@ -35,10 +35,11 @@ fn main() {
     for i in 0..buffer.segments_len() {
         let segment = buffer.get_segment(i).unwrap();
         for glyph in segment.shaped_glyphs {
-            let mut slot = face.load_glyph(glyph.glyph_index, font_size, dpi).unwrap();
-            let bitmap = slot.render_glyph(RenderMode::Normal).unwrap();
+            let render_mode = RenderMode::Normal;
+            let mut slot = face.load_glyph(glyph.glyph_index, font_size, dpi, LoadFlags::empty(), render_mode).unwrap();
+            let bitmap = slot.render_glyph(render_mode).unwrap();
             let metrics = GlyphMetricsPx::from(slot.metrics());
-            println!("{:?}", metrics);
+            println!("{:?}", (bitmap.dims,));
 
             blit(
                 bitmap.buffer, bitmap.dims, bitmap.dims.into(),
