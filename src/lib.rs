@@ -362,6 +362,11 @@ impl<B> Face<B> {
         }
     }
 
+    #[inline]
+    pub fn char_index(&self, c: char) -> u32 {
+        unsafe{ ft::FT_Get_Char_Index(self.ft_face, c as u32) }
+    }
+
     /// Retrieve the glyph advance. If scaling is performed (based on the value of `load_flags`),
     /// the advance value is in 16.16 format. Otherwise, it is in font units.
     pub fn glyph_advance(&mut self, glyph_index: u32, face_size: FaceSize, dpi: DPI, load_flags: LoadFlags) -> Result<i32, Error> {
