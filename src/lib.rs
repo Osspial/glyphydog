@@ -362,6 +362,23 @@ impl<B> Face<B> {
         }
     }
 
+    /// Retrieve the glyph advance. If scaling is performed (based on the value of `load_flags`),
+    /// the advance value is in 16.16 format. Otherwise, it is in font units.
+    pub fn glyph_advance(&mut self, glyph_index: u32, face_size: FaceSize, dpi: DPI, load_flags: LoadFlags) -> Result<i32, Error> {
+        if !load_flags.contains(LoadFlags::NO_SCALE) {
+            self.resize(face_size, dpi)?;
+        }
+
+        unsafe {
+            let mut advance = 0;
+            let error = ft::FT_Get_Advance(self.ft_face, glyph_index, mem::transmute(load_flags), &mut advance);
+            match error {
+                FT_Error(0) => Ok(advance),
+                _ => Err(Error::from_raw(error).unwrap())
+            }
+        }
+    }
+
     #[inline]
     pub fn metrics_font_units(&self) -> FontMetricsFU {
         let ft_face_ref = unsafe{ &*self.ft_face };

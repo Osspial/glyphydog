@@ -39,7 +39,6 @@ fn main() {
             let mut slot = face.load_glyph(glyph.glyph_index, font_size, dpi, LoadFlags::empty(), render_mode).unwrap();
             let bitmap = slot.render_glyph(render_mode).unwrap();
             let metrics = GlyphMetricsPx::from(slot.metrics());
-            println!("{:?}", (bitmap.dims,));
 
             blit(
                 bitmap.buffer, bitmap.dims, bitmap.dims.into(),
@@ -48,7 +47,6 @@ fn main() {
             );
         }
         cursor_x += segment.advance;
-        println!("{:#?}", buffer.get_segment(i).unwrap());
     }
 
     let file = File::create("./layout_text.png").unwrap();
