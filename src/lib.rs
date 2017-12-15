@@ -92,6 +92,7 @@ struct RawShapedSegment {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ShapedGlyph {
     pub glyph_index: u32,
+    pub advance: Vector2<i32>,
     pub pos: Point2<i32>,
     pub word_str_index: usize,
     // pub metrics: GlyphMetricsPx
@@ -510,6 +511,7 @@ impl Shaper {
 
                     let glyph_shaping = ShapedGlyph {
                         pos: cursor + Vector2::new(pos.x_offset, pos.y_offset),
+                        advance: Vector2::new(pos.x_advance, pos.y_advance) / 64,
                         glyph_index: info.codepoint,
                         word_str_index: info.cluster as usize,
                         // metrics: glyph_metrics
