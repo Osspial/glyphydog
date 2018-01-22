@@ -32,7 +32,7 @@ use std::ops::{Deref, Range};
 use std::ffi::CString;
 
 use cgmath::{Point2, Vector2};
-use cgmath_geometry::{DimsRect, Rectangle};
+use cgmath_geometry::{DimsBox, GeoBox};
 
 use xi_unicode::LineBreakIterator;
 
@@ -100,7 +100,7 @@ pub struct ShapedGlyph {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphMetrics266 {
-    pub dims: DimsRect<i32>,
+    pub dims: DimsBox<Point2<i32>>,
     pub hori_bearing: Vector2<i32>,
     pub hori_advance: i32,
     pub vert_bearing: Vector2<i32>,
@@ -109,7 +109,7 @@ pub struct GlyphMetrics266 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphMetricsPx {
-    pub dims: DimsRect<i32>,
+    pub dims: DimsBox<Point2<i32>>,
     pub hori_bearing: Vector2<i32>,
     pub hori_advance: i32,
     pub vert_bearing: Vector2<i32>,
@@ -146,7 +146,7 @@ pub struct GlyphSlot<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Bitmap<'a> {
-    pub dims: DimsRect<u32>,
+    pub dims: DimsBox<Point2<u32>>,
     pub pitch: i32,
     pub buffer: &'a [u8],
     pub pixel_mode: PixelMode
@@ -501,7 +501,7 @@ impl Shaper {
                     //     FT_Error(0) => {
                     //         let ft_metrics = (*(*face.ft_face).glyph).metrics;
                     //         GlyphMetricsPx {
-                    //             dims: DimsRect::new((ft_metrics.width / 64) as i32, (ft_metrics.height / 64) as i32),
+                    //             dims: DimsBox::new2((ft_metrics.width / 64) as i32, (ft_metrics.height / 64) as i32),
                     //             hori_bearing: Vector2::new((ft_metrics.horiBearingX / 64) as i32, (ft_metrics.horiBearingY / 64) as i32),
                     //             hori_advance: (ft_metrics.vertAdvance / 64) as i32
                     //         }
@@ -583,7 +583,7 @@ impl<'a> GlyphSlot<'a> {
         let ft_metrics = self.glyph_slot.metrics;
 
         GlyphMetrics266 {
-            dims: DimsRect::new(ft_metrics.width, ft_metrics.height),
+            dims: DimsBox::new2(ft_metrics.width, ft_metrics.height),
             hori_bearing: Vector2::new(ft_metrics.horiBearingX, ft_metrics.horiBearingY),
             hori_advance: ft_metrics.horiAdvance,
             vert_bearing: Vector2::new(ft_metrics.vertBearingX, ft_metrics.vertBearingY),
@@ -606,7 +606,7 @@ impl<'a> GlyphSlot<'a> {
         match ft_bitmap.pixel_mode {
             0 => None,
             _ => Some(Bitmap {
-                dims: DimsRect::new(ft_bitmap.width as u32, ft_bitmap.rows as u32),
+                dims: DimsBox::new2(ft_bitmap.width as u32, ft_bitmap.rows as u32),
                 pitch: ft_bitmap.pitch,
                 buffer: match ft_bitmap.buffer as usize {
                     // If we just returned a from_raw_parts when the buffer was null, the null pointer
@@ -646,7 +646,7 @@ impl DPI {
 impl From<GlyphMetrics266> for GlyphMetricsPx {
     fn from(metrics: GlyphMetrics266) -> GlyphMetricsPx {
         GlyphMetricsPx {
-            dims: DimsRect::new(metrics.dims.width() / 64, metrics.dims.height() / 64),
+            dims: DimsBox::new2(metrics.dims.width() / 64, metrics.dims.height() / 64),
             hori_bearing: metrics.hori_bearing / 64,
             hori_advance: metrics.hori_advance / 64,
             vert_bearing: metrics.vert_bearing / 64,
