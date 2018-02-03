@@ -73,9 +73,10 @@ pub struct ShapedBuffer {
     text: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShapedSegment<'a> {
     pub text: &'a str,
+    pub text_range: Range<usize>,
     pub shaped_glyphs: &'a [ShapedGlyph],
     pub advance: i32,
     pub hard_break: bool
@@ -570,7 +571,8 @@ impl ShapedBuffer {
     #[inline]
     pub fn get_segment<'a>(&'a self, index: usize) -> Option<ShapedSegment<'a>> {
         self.segments.get(index).cloned().map(|s| ShapedSegment {
-            text: &self.text.get(s.text_range).expect("bad text"),
+            text: &self.text.get(s.text_range.clone()).expect("bad text"),
+            text_range: s.text_range,
             shaped_glyphs: &self.glyphs.get(s.glyph_range).expect("bad range"),
             advance: s.advance,
             hard_break: s.hard_break
