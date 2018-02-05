@@ -95,6 +95,7 @@ pub struct ShapedGlyph {
     pub glyph_index: u32,
     pub advance: Vector2<i32>,
     pub pos: Point2<i32>,
+    pub str_index: usize,
     pub word_str_index: usize,
     // pub metrics: GlyphMetricsPx
 }
@@ -514,6 +515,7 @@ impl Shaper {
                         pos: cursor + Vector2::new(pos.x_offset, pos.y_offset),
                         advance: Vector2::new(pos.x_advance, pos.y_advance) / 64,
                         glyph_index: info.codepoint,
+                        str_index: last_break + info.cluster as usize,
                         word_str_index: info.cluster as usize,
                         // metrics: glyph_metrics
                     };

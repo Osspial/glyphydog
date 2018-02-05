@@ -10,8 +10,8 @@ use std::io::Read;
 use std::io::BufWriter;
 use png::HasParameters;
 
-use cgmath::{Vector2, EuclideanSpace};
-use cgmath_geometry::{Rectangle, OffsetRect, DimsRect};
+use cgmath::{Point2, Vector2, EuclideanSpace};
+use cgmath_geometry::{GeoBox, OffsetBox, DimsBox};
 
 fn main() {
     let lib = FTLib::new();
@@ -35,6 +35,7 @@ fn main() {
     for i in 0..buffer.segments_len() {
         let segment = buffer.get_segment(i).unwrap();
         for glyph in segment.shaped_glyphs {
+            println!("{:#?}", glyph);
             let render_mode = RenderMode::Normal;
             let mut slot = face.load_glyph(glyph.glyph_index, font_size, dpi, LoadFlags::empty(), render_mode).unwrap();
             let bitmap = slot.render_glyph(render_mode).unwrap();
@@ -42,7 +43,7 @@ fn main() {
 
             blit(
                 bitmap.buffer, bitmap.dims, bitmap.dims.into(),
-                &mut output_image, DimsRect::new(256, 256),
+                &mut output_image, DimsBox::new2(256, 256),
                     (Vector2::new(cursor_x + metrics.hori_bearing.x, 32 - metrics.hori_bearing.y) + glyph.pos.to_vec()).cast().unwrap()
             );
         }
@@ -59,8 +60,8 @@ fn main() {
 }
 
 fn blit<P: Copy>(
-    src: &[P], src_dims: DimsRect<u32>, src_copy_from: OffsetRect<u32>,
-    dst: &mut [P], dst_dims: DimsRect<u32>, dst_offset: Vector2<u32>
+    src: &[P], src_dims: DimsBox<Point2<u32>>, src_copy_from: OffsetBox<Point2<u32>>,
+    dst: &mut [P], dst_dims: DimsBox<Point2<u32>>, dst_offset: Vector2<u32>
 ) {
     for row_num in 0..src_copy_from.height() as usize {
         let dst_row_num = row_num + dst_offset.y as usize;
