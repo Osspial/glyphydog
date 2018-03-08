@@ -68,9 +68,9 @@ unsafe extern "C" fn get_font_h_extents(
 
     let ft_metrics = &(*(*ffd.ft_face).size).metrics;
     let hb_metrics = &mut *metrics;
-    hb_metrics.ascender = ft_metrics.ascender;
-    hb_metrics.descender = ft_metrics.descender;
-    hb_metrics.line_gap = ft_metrics.height - (ft_metrics.ascender - ft_metrics.descender);
+    hb_metrics.ascender = ft_metrics.ascender as hb_position_t;
+    hb_metrics.descender = ft_metrics.descender as hb_position_t;
+    hb_metrics.line_gap = (ft_metrics.height - (ft_metrics.ascender - ft_metrics.descender)) as hb_position_t;
 
     if ft_metrics.y_scale < 0 {
         hb_metrics.ascender *= -1;
@@ -90,10 +90,10 @@ unsafe extern "C" fn get_font_nominal_glyph(
 ) -> hb_bool_t
 {
     let ffd = &*(font_data as *const FontFuncData);
-    let mut char_index = FT_Get_Char_Index(ffd.ft_face, unicode);
+    let mut char_index = FT_Get_Char_Index(ffd.ft_face, unicode as FT_ULong);
 
     if char_index == 0 && ffd.symbol && unicode <= 0x00FF {
-        char_index = FT_Get_Char_Index(ffd.ft_face, 0xF000 + unicode);
+        char_index = FT_Get_Char_Index(ffd.ft_face, 0xF000 + unicode as FT_ULong);
         if char_index == 0 {
             return 0;
         }
@@ -113,7 +113,7 @@ unsafe extern "C" fn get_variation_glyph(
 ) -> hb_bool_t
 {
     let ffd = &*(font_data as *const FontFuncData);
-    let char_index = FT_Face_GetCharVariantIndex(ffd.ft_face, unicode, variation_selector);
+    let char_index = FT_Face_GetCharVariantIndex(ffd.ft_face, unicode as FT_ULong, variation_selector);
 
     match char_index {
         0 => 0,
@@ -140,7 +140,7 @@ unsafe extern "C" fn get_h_advance(
                 advance *= -1;
             }
 
-            (advance + (1<<9)) >> 10
+            ((advance + (1<<9)) >> 10) as hb_position_t
         },
         _ => 0
     }
@@ -161,7 +161,7 @@ unsafe extern "C" fn get_v_advance(
                 advance *= -1;
             }
 
-            (-advance + (1<<9)) >> 10
+            ((-advance + (1<<9)) >> 10) as hb_position_t
         },
         _ => 0
     }
@@ -181,8 +181,8 @@ unsafe extern "C" fn get_v_origin(
     match FT_Load_Glyph(ffd.ft_face, glyph, ffd.load_flags) {
         FT_Error(0) => {
             let glyph_metrics = (*(*ffd.ft_face).glyph).metrics;
-            *x = glyph_metrics.horiBearingX - glyph_metrics.vertBearingX;
-            *y = glyph_metrics.horiBearingY - (-glyph_metrics.vertBearingY);
+            *x = (glyph_metrics.horiBearingX - glyph_metrics.vertBearingX) as hb_position_t;
+            *y = (glyph_metrics.horiBearingY - (-glyph_metrics.vertBearingY)) as hb_position_t;
 
             if (*(*ffd.ft_face).size).metrics.x_scale < 0 {
                 *x *= -1;
@@ -213,7 +213,7 @@ unsafe extern "C" fn get_h_kerning(
         _ => FT_Kerning_Mode__FT_KERNING_DEFAULT
     };
     match FT_Get_Kerning(ffd.ft_face, left_glyph, right_glyph, mode as c_uint, &mut kerningv) {
-        FT_Error(0) => kerningv.x,
+        FT_Error(0) => kerningv.x as hb_position_t,
         _ => 0
     }
 }
@@ -232,10 +232,10 @@ unsafe extern "C" fn get_extents(
     match FT_Load_Glyph(ffd.ft_face, glyph, ffd.load_flags) {
         FT_Error(0) => {
             let glyph_metrics = (*(*ffd.ft_face).glyph).metrics;
-            extents.x_bearing = glyph_metrics.horiBearingX;
-            extents.y_bearing = glyph_metrics.horiBearingY;
-            extents.width = glyph_metrics.width;
-            extents.height = glyph_metrics.height;
+            extents.x_bearing = glyph_metrics.horiBearingX as hb_position_t;
+            extents.y_bearing = glyph_metrics.horiBearingY as hb_position_t;
+            extents.width = glyph_metrics.width as hb_position_t;
+            extents.height = glyph_metrics.height as hb_position_t;
 
             if (*(*ffd.ft_face).size).metrics.x_scale < 0 {
                 extents.x_bearing *= -1;
@@ -276,8 +276,8 @@ unsafe extern "C" fn get_contour_point(
         return 0;
     }
 
-    *x = (*glyph.outline.points.offset(point_index as isize)).x;
-    *y = (*glyph.outline.points.offset(point_index as isize)).y;
+    *x = (*glyph.outline.points.offset(point_index as isize)).x as hb_position_t;
+    *y = (*glyph.outline.points.offset(point_index as isize)).y as hb_position_t;
 
     1
 }

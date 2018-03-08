@@ -20,7 +20,7 @@ mod ft_alloc;
 
 use libc::{c_int, c_uint, c_char};
 use freetype::freetype as ft;
-use ft::{FT_Face, FT_Library, FT_Error, FT_Size_RequestRec_, FT_Size_Request_Type__FT_SIZE_REQUEST_TYPE_NOMINAL};
+use ft::{FT_Face, FT_Library, FT_Error, FT_Size_RequestRec_, FT_Size_Request_Type__FT_SIZE_REQUEST_TYPE_NOMINAL, FT_ULong, FT_Long};
 
 use harfbuzz_sys::*;
 
@@ -223,7 +223,7 @@ impl Face<()> {
             let err_raw = ft::FT_New_Face(
                 lib.lib,
                 path_c.as_ptr(),
-                face_index,
+                face_index as i32,
                 &mut ft_face
             );
 
@@ -234,17 +234,17 @@ impl Face<()> {
                         let ft_face = user_data as FT_Face;
                         let mut len = 0;
 
-                        if FT_Error(0) != ft::FT_Load_Sfnt_Table(ft_face, tag, 0, ptr::null_mut(), &mut len) {
+                        if FT_Error(0) != ft::FT_Load_Sfnt_Table(ft_face, tag as FT_ULong, 0, ptr::null_mut(), &mut len) {
                             return ptr::null_mut();
                         }
 
                         let mut buf = vec![0; len as usize];
-                        if FT_Error(0) != ft::FT_Load_Sfnt_Table(ft_face, tag, 0, buf.as_mut_ptr() as *mut ft::FT_Byte, &mut len) {
+                        if FT_Error(0) != ft::FT_Load_Sfnt_Table(ft_face, tag as FT_ULong, 0, buf.as_mut_ptr() as *mut ft::FT_Byte, &mut len) {
                             return ptr::null_mut();
                         }
 
                         hb_blob_create(
-                            buf.as_mut_ptr(), len, HB_MEMORY_MODE_WRITABLE,
+                            buf.as_mut_ptr(), len as FT_ULong, HB_MEMORY_MODE_WRITABLE,
                             Box::into_raw(Box::new(buf)) as *mut c_void, Some(free_ref_table)
                         )
                     }
@@ -293,8 +293,8 @@ impl<B> Face<B>
             let err_raw = ft::FT_New_Memory_Face(
                 lib.lib,
                 font_buffer.as_ptr(),
-                font_buffer.len() as c_int,
-                face_index,
+                font_buffer.len() as FT_Long,
+                face_index as FT_Long,
                 &mut ft_face
             );
 
@@ -367,7 +367,7 @@ impl<B> Face<B> {
 
     #[inline]
     pub fn char_index(&self, c: char) -> u32 {
-        unsafe{ ft::FT_Get_Char_Index(self.ft_face, c as u32) }
+        unsafe{ ft::FT_Get_Char_Index(self.ft_face, c as FT_ULong) }
     }
 
     /// Retrieve the glyph advance. If scaling is performed (based on the value of `load_flags`),
@@ -381,7 +381,7 @@ impl<B> Face<B> {
             let mut advance = 0;
             let error = ft::FT_Get_Advance(self.ft_face, glyph_index, mem::transmute(load_flags), &mut advance);
             match error {
-                FT_Error(0) => Ok(advance),
+                FT_Error(0) => Ok(advance as i32),
                 _ => Err(Error::from_raw(error).unwrap())
             }
         }
@@ -410,12 +410,12 @@ impl<B> Face<B> {
         Ok(FontMetrics266 {
             x_ppem: size_metrics.x_ppem,
             y_ppem: size_metrics.y_ppem,
-            x_scale: size_metrics.x_scale,
-            y_scale: size_metrics.y_scale,
-            ascender: size_metrics.ascender,
-            descender: size_metrics.descender,
-            height: size_metrics.height,
-            max_advance: size_metrics.max_advance,
+            x_scale: size_metrics.x_scale as i32,
+            y_scale: size_metrics.y_scale as i32,
+            ascender: size_metrics.ascender as i32,
+            descender: size_metrics.descender as i32,
+            height: size_metrics.height as i32,
+            max_advance: size_metrics.max_advance as i32,
         })
     }
 
@@ -435,8 +435,8 @@ impl<B> Face<B> {
             // Change freetype font size
             let mut size_request = FT_Size_RequestRec_ {
                 type_: FT_Size_Request_Type__FT_SIZE_REQUEST_TYPE_NOMINAL,
-                width: face_size.width as i32,
-                height: face_size.height as i32,
+                width: face_size.width as FT_Long,
+                height: face_size.height as FT_Long,
                 horiResolution: dpi.hori,
                 vertResolution: dpi.vert
             };
@@ -587,11 +587,11 @@ impl<'a> GlyphSlot<'a> {
         let ft_metrics = self.glyph_slot.metrics;
 
         GlyphMetrics266 {
-            dims: DimsBox::new2(ft_metrics.width, ft_metrics.height),
-            hori_bearing: Vector2::new(ft_metrics.horiBearingX, ft_metrics.horiBearingY),
-            hori_advance: ft_metrics.horiAdvance,
-            vert_bearing: Vector2::new(ft_metrics.vertBearingX, ft_metrics.vertBearingY),
-            vert_advance: ft_metrics.vertAdvance,
+            dims: DimsBox::new2(ft_metrics.width as i32, ft_metrics.height as i32),
+            hori_bearing: Vector2::new(ft_metrics.horiBearingX as i32, ft_metrics.horiBearingY as i32),
+            hori_advance: ft_metrics.horiAdvance as i32,
+            vert_bearing: Vector2::new(ft_metrics.vertBearingX as i32, ft_metrics.vertBearingY as i32),
+            vert_advance: ft_metrics.vertAdvance as i32,
         }
     }
 
@@ -673,7 +673,7 @@ impl<B> Clone for Face<B>
 {
     fn clone(&self) -> Face<B> {
         let buf = self._font_buffer.clone();
-        Face::new(buf, unsafe{ (*self.ft_face).face_index }, &self._lib).unwrap()
+        Face::new(buf, unsafe{ (*self.ft_face).face_index as FT_Long }, &self._lib).unwrap()
     }
 }
 
