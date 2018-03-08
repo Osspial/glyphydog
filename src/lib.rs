@@ -223,7 +223,7 @@ impl Face<()> {
             let err_raw = ft::FT_New_Face(
                 lib.lib,
                 path_c.as_ptr(),
-                face_index as i32,
+                face_index as FT_Long,
                 &mut ft_face
             );
 
@@ -244,7 +244,7 @@ impl Face<()> {
                         }
 
                         hb_blob_create(
-                            buf.as_mut_ptr(), len as FT_ULong, HB_MEMORY_MODE_WRITABLE,
+                            buf.as_mut_ptr(), len as c_uint, HB_MEMORY_MODE_WRITABLE,
                             Box::into_raw(Box::new(buf)) as *mut c_void, Some(free_ref_table)
                         )
                     }
@@ -673,7 +673,7 @@ impl<B> Clone for Face<B>
 {
     fn clone(&self) -> Face<B> {
         let buf = self._font_buffer.clone();
-        Face::new(buf, unsafe{ (*self.ft_face).face_index as FT_Long }, &self._lib).unwrap()
+        Face::new(buf, unsafe{ (*self.ft_face).face_index as i32 }, &self._lib).unwrap()
     }
 }
 

@@ -113,7 +113,7 @@ unsafe extern "C" fn get_variation_glyph(
 ) -> hb_bool_t
 {
     let ffd = &*(font_data as *const FontFuncData);
-    let char_index = FT_Face_GetCharVariantIndex(ffd.ft_face, unicode as FT_ULong, variation_selector);
+    let char_index = FT_Face_GetCharVariantIndex(ffd.ft_face, unicode as FT_ULong, variation_selector as FT_ULong);
 
     match char_index {
         0 => 0,
