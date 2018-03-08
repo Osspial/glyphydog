@@ -74,12 +74,19 @@ pub struct ShapedBuffer {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BreakType {
+    Soft,
+    Hard,
+    Newline
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShapedSegment<'a> {
     pub text: &'a str,
     pub text_range: Range<usize>,
     pub shaped_glyphs: &'a [ShapedGlyph],
     pub advance: i32,
-    pub hard_break: bool
+    pub break_type: BreakType
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +94,7 @@ struct RawShapedSegment {
     text_range: Range<usize>,
     glyph_range: Range<usize>,
     advance: i32,
-    hard_break: bool
+    break_type: BreakType
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -531,7 +538,11 @@ impl Shaper {
                 text_range: last_break + text_offset..break_index + text_offset,
                 glyph_range,
                 advance: cursor.x,
-                hard_break
+                break_type: match (hard_break, segment_str.as_bytes().last().map(|b| *b as char)) {
+                    (false, _) => BreakType::Soft,
+                    (true, Some('\n')) => BreakType::Newline,
+                    (true, _) => BreakType::Hard
+                }
             });
             last_break = break_index;
         }
@@ -577,7 +588,7 @@ impl ShapedBuffer {
             text_range: s.text_range,
             shaped_glyphs: &self.glyphs.get(s.glyph_range).expect("bad range"),
             advance: s.advance,
-            hard_break: s.hard_break
+            break_type: s.break_type
         })
     }
 }
@@ -696,6 +707,17 @@ impl Drop for Shaper {
     fn drop(&mut self) {
         unsafe {
             hb_buffer_destroy(self.hb_buf);
+        }
+    }
+}
+
+impl BreakType {
+    #[inline]
+    pub fn is_hard_break(self) -> bool {
+        match self {
+            BreakType::Soft => false,
+            BreakType::Hard     |
+            BreakType::Newline => true
         }
     }
 }
