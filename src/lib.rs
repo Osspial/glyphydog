@@ -358,6 +358,11 @@ impl<B> Face<B>
             }
         }
     }
+
+    #[inline]
+    pub fn buffer(&self) -> &B {
+        &self._font_buffer
+    }
 }
 
 impl<B: ?Sized> Face<B> {
