@@ -56,12 +56,12 @@ pub struct FTLib {
     lib: FT_Library
 }
 
-pub struct Face<B> {
+pub struct Face<B: ?Sized> {
     ft_face: FT_Face,
     ft_size_request: FT_Size_RequestRec_,
     hb_font: *mut hb_font_t,
-    _font_buffer: B,
-    _lib: FTLib
+    _lib: FTLib,
+    _font_buffer: B
 }
 
 pub struct Shaper {
@@ -360,7 +360,7 @@ impl<B> Face<B>
     }
 }
 
-impl<B> Face<B> {
+impl<B: ?Sized> Face<B> {
     pub fn load_glyph<'a>(
         &'a mut self,
         glyph_index: u32,
@@ -480,7 +480,7 @@ impl Shaper {
     }
 
     #[inline]
-    pub fn shape_text<B>(&mut self,
+    pub fn shape_text<B: ?Sized>(&mut self,
         text: &str,
         face: &mut Face<B>,
         face_size: FaceSize,
@@ -694,7 +694,7 @@ impl Clone for FTLib {
 }
 
 impl<B> Clone for Face<B>
-    where B: StableDeref + Deref<Target=[u8]> + Clone
+    where B: StableDeref + Deref<Target=[u8]> + Clone + ?Sized
 {
     fn clone(&self) -> Face<B> {
         let buf = self._font_buffer.clone();
@@ -708,7 +708,7 @@ impl Drop for FTLib {
     }
 }
 
-impl<B> Drop for Face<B> {
+impl<B: ?Sized> Drop for Face<B> {
     fn drop(&mut self) {
         unsafe {
             hb_font_destroy(self.hb_font);
