@@ -10,7 +10,6 @@ extern crate stable_deref_trait;
 // extern crate unicode_bidi;
 // extern crate unicode_script;
 extern crate xi_unicode;
-extern crate cgmath;
 extern crate cgmath_geometry;
 #[macro_use]
 extern crate derive_error;
@@ -32,6 +31,7 @@ use std::ops::{Deref, Range};
 use std::ffi::CString;
 
 use cgmath::{Point2, Vector2};
+use cgmath_geometry::cgmath;
 use cgmath_geometry::{DimsBox, GeoBox};
 
 use xi_unicode::LineBreakIterator;
