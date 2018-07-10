@@ -14,8 +14,8 @@
 
 use ft::{FT_Memory, FT_MemoryRec_};
 
-use std::os::raw::c_void;
-use libc::{self, c_long};
+use std::os::raw::{c_void, c_long};
+use libc;
 
 pub fn alloc_mem_rec() -> *mut FT_MemoryRec_ {
     Box::into_raw(Box::new(FT_MemoryRec_ {

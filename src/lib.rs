@@ -31,7 +31,7 @@ extern crate derive_error;
 mod hb_funcs;
 mod ft_alloc;
 
-use libc::{c_int, c_uint, c_char};
+use std::os::raw::{c_void, c_uint, c_int, c_char};
 use freetype::freetype as ft;
 use ft::{FT_Face, FT_Library, FT_Error, FT_Size_RequestRec_, FT_Size_Request_Type__FT_SIZE_REQUEST_TYPE_NOMINAL, FT_ULong, FT_Long};
 
@@ -250,7 +250,6 @@ impl Face<()> {
 
             match Error::from_raw(err_raw).unwrap() {
                 Error::Ok => {
-                    use libc::c_void;
                     unsafe extern "C" fn reference_table(_: *mut hb_face_t, tag: hb_tag_t, user_data: *mut c_void) -> *mut hb_blob_t {
                         let ft_face = user_data as FT_Face;
                         let mut len = 0;

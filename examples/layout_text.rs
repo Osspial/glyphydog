@@ -1,6 +1,6 @@
 extern crate glyphydog;
 extern crate cgmath_geometry;
-extern crate cgmath;
+use cgmath_geometry::cgmath;
 extern crate png;
 
 use glyphydog::{FTLib, Face, Shaper, FaceSize, DPI, ShapedBuffer, RenderMode, LoadFlags, GlyphMetricsPx};
@@ -15,7 +15,7 @@ use cgmath_geometry::{GeoBox, OffsetBox, DimsBox};
 
 fn main() {
     let lib = FTLib::new();
-    let mut face = Face::new_path("./DejaVuSans.ttf", 0, &lib).unwrap();
+    let mut face = Face::new(&include_bytes!("../DejaVuSans.ttf")[..], 0, &lib).unwrap();
     let mut shaper = Shaper::new();
 
     let mut output_image = vec![0; 256 * 256];
@@ -28,6 +28,7 @@ fn main() {
         hori: 72,
         vert: 72
     };
+    let start_time = ::std::time::Instant::now();
     let mut buffer = ShapedBuffer::new();
     shaper.shape_text("Γειά σου Κόσμε!", &mut face, font_size, dpi, &mut buffer).unwrap();
     shaper.shape_text("Hello World!", &mut face, font_size, dpi, &mut buffer).unwrap();
@@ -35,7 +36,6 @@ fn main() {
     for i in 0..buffer.segments_len() {
         let segment = buffer.get_segment(i).unwrap();
         for glyph in segment.shaped_glyphs {
-            println!("{:#?}", glyph);
             let render_mode = RenderMode::Normal;
             let mut slot = face.load_glyph(glyph.glyph_index, font_size, dpi, LoadFlags::empty(), render_mode).unwrap();
             let bitmap = slot.render_glyph(render_mode).unwrap();
@@ -49,6 +49,7 @@ fn main() {
         }
         cursor_x += segment.advance;
     }
+    println!("{:?}", ::std::time::Instant::now() - start_time);
 
     let file = File::create("./layout_text.png").unwrap();
     let ref mut w = BufWriter::new(file);

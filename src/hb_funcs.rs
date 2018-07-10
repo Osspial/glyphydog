@@ -15,7 +15,7 @@
 use ft::*;
 use harfbuzz_sys::*;
 
-use libc::{c_void, c_uint, c_int};
+use std::os::raw::{c_void, c_uint, c_int, c_char};
 use std::{ptr, mem};
 
 pub unsafe fn set_for_font(hb_font: *mut hb_font_t, ft_face: FT_Face) {
@@ -268,12 +268,12 @@ unsafe extern "C" fn get_extents(
 
 unsafe extern "C" fn get_contour_point(
     _: *mut hb_font_t,
-    font_data: *mut ::libc::c_void,
+    font_data: *mut c_void,
     glyph: hb_codepoint_t,
-    point_index: ::libc::c_uint,
+    point_index: c_uint,
     x: *mut hb_position_t,
     y: *mut hb_position_t,
-    _: *mut ::libc::c_void
+    _: *mut c_void
 ) -> hb_bool_t
 {
     let ffd = &*(font_data as *const FontFuncData);
@@ -298,11 +298,11 @@ unsafe extern "C" fn get_contour_point(
 
 unsafe extern "C" fn get_glyph_name(
     _: *mut hb_font_t,
-    font_data: *mut ::libc::c_void,
+    font_data: *mut c_void,
     glyph: hb_codepoint_t,
-    name: *mut ::libc::c_char,
-    size: ::libc::c_uint,
-    _: *mut ::libc::c_void
+    name: *mut c_char,
+    size: c_uint,
+    _: *mut c_void
     ) -> hb_bool_t
 {
     let ffd = &*(font_data as *const FontFuncData);

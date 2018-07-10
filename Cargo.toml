@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Osspial <osspial@gmail.com>"]
 
 [dependencies]
-harfbuzz-sys = "0.1"
+harfbuzz-sys = "0.2"
 freetype = { git = "https://github.com/Osspial/rust-freetype" }
 libc = "0.2"
 bitflags = "1.0"
