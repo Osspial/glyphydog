@@ -45,8 +45,8 @@ use std::ops::{Deref, Range};
 use std::ffi::CString;
 
 use cgmath::{Point2, Vector2};
-use cgmath_geometry::cgmath;
-use cgmath_geometry::{DimsBox, GeoBox};
+use cgmath_geometry::{cgmath, D2};
+use cgmath_geometry::rect::{DimsBox, GeoBox};
 
 use xi_unicode::LineBreakIterator;
 
@@ -123,7 +123,7 @@ pub struct ShapedGlyph {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphMetrics266 {
-    pub dims: DimsBox<Point2<i32>>,
+    pub dims: DimsBox<D2, i32>,
     pub hori_bearing: Vector2<i32>,
     pub hori_advance: i32,
     pub vert_bearing: Vector2<i32>,
@@ -132,7 +132,7 @@ pub struct GlyphMetrics266 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphMetricsPx {
-    pub dims: DimsBox<Point2<i32>>,
+    pub dims: DimsBox<D2, i32>,
     pub hori_bearing: Vector2<i32>,
     pub hori_advance: i32,
     pub vert_bearing: Vector2<i32>,
@@ -169,7 +169,7 @@ pub struct GlyphSlot<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Bitmap<'a> {
-    pub dims: DimsBox<Point2<u32>>,
+    pub dims: DimsBox<D2, u32>,
     pub pitch: i32,
     pub buffer: &'a [u8],
     pub pixel_mode: PixelMode
