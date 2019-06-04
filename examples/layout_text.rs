@@ -5,12 +5,11 @@ extern crate png;
 
 use glyphydog::{FTLib, Face, Shaper, FaceSize, DPI, RenderMode, LoadFlags, GlyphMetricsPx};
 use std::fs::File;
-use std::io::Read;
 
 use std::io::BufWriter;
 use png::HasParameters;
 
-use cgmath::{Point2, Vector2, EuclideanSpace};
+use cgmath::{Vector2, EuclideanSpace};
 use cgmath_geometry::{D2, rect::{GeoBox, OffsetBox, DimsBox}};
 
 fn main() {
@@ -31,26 +30,18 @@ fn main() {
 
     let start_time = ::std::time::Instant::now();
     let text = "Γειά σου Κόσμε! Hello World!";
-    let mut segments = Vec::new();
-    let mut glyphs = Vec::new();
 
-    shaper.shape_text(text, &mut face, font_size, dpi).unwrap()
-        .write_to_buffers(&mut segments, &mut glyphs);
-    let mut cursor_x = 0;
-    for segment in segments {
-        for glyph in glyphs[segment.glyph_range].iter().cloned() {
-            let render_mode = RenderMode::Normal;
-            let mut slot = face.load_glyph(glyph.glyph_index, font_size, dpi, LoadFlags::empty(), render_mode).unwrap();
-            let bitmap = slot.render_glyph(render_mode).unwrap();
-            let metrics = GlyphMetricsPx::from(slot.metrics());
+    for glyph in shaper.shape_text(text, &mut face, font_size, dpi).unwrap() {
+        let render_mode = RenderMode::Normal;
+        let mut slot = face.load_glyph(glyph.glyph_index, font_size, dpi, LoadFlags::empty(), render_mode).unwrap();
+        let bitmap = slot.render_glyph(render_mode).unwrap();
+        let metrics = GlyphMetricsPx::from(slot.metrics());
 
-            blit(
-                bitmap.buffer, bitmap.dims, bitmap.dims.into(),
-                &mut output_image, DimsBox::new2(256, 256),
-                    (Vector2::new(cursor_x + metrics.hori_bearing.x, 32 - metrics.hori_bearing.y) + glyph.pos.to_vec()).cast().unwrap()
-            );
-        }
-        cursor_x += segment.advance;
+        blit(
+            bitmap.buffer, bitmap.dims, bitmap.dims.into(),
+            &mut output_image, DimsBox::new2(256, 256),
+                (Vector2::new(metrics.hori_bearing.x, 32 - metrics.hori_bearing.y) + glyph.pos.to_vec()).cast().unwrap()
+        );
     }
     println!("{:?}", ::std::time::Instant::now() - start_time);
 
