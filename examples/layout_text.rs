@@ -3,7 +3,7 @@ extern crate cgmath_geometry;
 use cgmath_geometry::cgmath;
 extern crate png;
 
-use glyphydog::{FTLib, Face, Shaper, FaceSize, DPI, ShapedBuffer, RenderMode, LoadFlags, GlyphMetricsPx};
+use glyphydog::{FTLib, Face, Shaper, FaceSize, DPI, RenderMode, LoadFlags, GlyphMetricsPx};
 use std::fs::File;
 use std::io::Read;
 
@@ -11,7 +11,7 @@ use std::io::BufWriter;
 use png::HasParameters;
 
 use cgmath::{Point2, Vector2, EuclideanSpace};
-use cgmath_geometry::{GeoBox, OffsetBox, DimsBox};
+use cgmath_geometry::{D2, rect::{GeoBox, OffsetBox, DimsBox}};
 
 fn main() {
     let lib = FTLib::new();
@@ -28,14 +28,17 @@ fn main() {
         hori: 72,
         vert: 72
     };
+
     let start_time = ::std::time::Instant::now();
-    let mut buffer = ShapedBuffer::new();
-    shaper.shape_text("Γειά σου Κόσμε!", &mut face, font_size, dpi, &mut buffer).unwrap();
-    shaper.shape_text("Hello World!", &mut face, font_size, dpi, &mut buffer).unwrap();
+    let text = "Γειά σου Κόσμε! Hello World!";
+    let mut segments = Vec::new();
+    let mut glyphs = Vec::new();
+
+    shaper.shape_text(text, &mut face, font_size, dpi).unwrap()
+        .write_to_buffers(&mut segments, &mut glyphs);
     let mut cursor_x = 0;
-    for i in 0..buffer.segments_len() {
-        let segment = buffer.get_segment(i).unwrap();
-        for glyph in segment.shaped_glyphs {
+    for segment in segments {
+        for glyph in glyphs[segment.glyph_range].iter().cloned() {
             let render_mode = RenderMode::Normal;
             let mut slot = face.load_glyph(glyph.glyph_index, font_size, dpi, LoadFlags::empty(), render_mode).unwrap();
             let bitmap = slot.render_glyph(render_mode).unwrap();
@@ -61,8 +64,8 @@ fn main() {
 }
 
 fn blit<P: Copy>(
-    src: &[P], src_dims: DimsBox<Point2<u32>>, src_copy_from: OffsetBox<Point2<u32>>,
-    dst: &mut [P], dst_dims: DimsBox<Point2<u32>>, dst_offset: Vector2<u32>
+    src: &[P], src_dims: DimsBox<D2, u32>, src_copy_from: OffsetBox<D2, u32>,
+    dst: &mut [P], dst_dims: DimsBox<D2, u32>, dst_offset: Vector2<u32>
 ) {
     for row_num in 0..src_copy_from.height() as usize {
         let dst_row_num = row_num + dst_offset.y as usize;

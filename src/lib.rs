@@ -43,6 +43,7 @@ use std::{mem, slice, ptr};
 use std::path::Path;
 use std::ops::{Deref, Range};
 use std::ffi::CString;
+use std::marker::PhantomData;
 
 use cgmath::{Point2, Vector2};
 use cgmath_geometry::{cgmath, D2};
@@ -80,13 +81,6 @@ pub struct DPI {
     pub vert: u32
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct ShapedBuffer {
-    glyphs: Vec<ShapedGlyph>,
-    segments: Vec<RawShapedSegment>,
-    text: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BreakType {
     Soft,
@@ -95,20 +89,11 @@ pub enum BreakType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ShapedSegment<'a> {
-    pub text: &'a str,
+pub struct ShapedSegment {
     pub text_range: Range<usize>,
-    pub shaped_glyphs: &'a [ShapedGlyph],
+    pub glyph_range: Range<usize>,
     pub advance: i32,
-    pub break_type: BreakType
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RawShapedSegment {
-    text_range: Range<usize>,
-    glyph_range: Range<usize>,
-    advance: i32,
-    break_type: BreakType
+    pub break_type: BreakType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -173,6 +158,22 @@ pub struct Bitmap<'a> {
     pub pitch: i32,
     pub buffer: &'a [u8],
     pub pixel_mode: PixelMode
+}
+
+pub struct ShapedText<'a> {
+    hb_buf: *mut hb_buffer_t,
+    hb_font: *mut hb_font_t,
+    text: &'a str,
+    last_break: usize,
+    glyph_count: usize,
+    line_breaks: LineBreakIterator<'a>,
+    _buffer_ref: PhantomData<(&'a *mut hb_buffer_t, &'a *mut hb_font_t)>,
+}
+
+pub struct ShapedGlyphIter<'a> {
+    glyph_iter: std::iter::Zip<std::iter::Cloned<std::slice::Iter<'a, harfbuzz_sys::hb_glyph_position_t>>, std::iter::Cloned<std::slice::Iter<'a, harfbuzz_sys::hb_glyph_info_t>>>,
+    last_break: usize,
+    cursor: Point2<i32>,
 }
 
 #[repr(u8)]
@@ -484,132 +485,103 @@ impl Shaper {
     }
 
     #[inline]
-    pub fn shape_text<B: ?Sized>(&mut self,
-        text: &str,
-        face: &mut Face<B>,
+    pub fn shape_text<'a, B: ?Sized>(
+        &'a mut self,
+        text: &'a str,
+        face: &'a mut Face<B>,
         face_size: FaceSize,
         dpi: DPI,
-        buffer: &mut ShapedBuffer
-    ) -> Result<(), Error> {
+    ) -> Result<ShapedText<'a>, Error>
+    {
         face.resize(face_size, dpi)?;
 
-        let text_offset = buffer.text.len();
-        buffer.text.push_str(text);
-
-        let mut last_break = 0;
-        for (break_index, hard_break) in LineBreakIterator::new(text) {
-            let segment_str = &text[last_break..break_index];
-            let hb_buf = self.hb_buf;
-
-            unsafe{
-                // Add the word to the harfbuzz buffer, and shape it.
-                hb_buffer_clear_contents(hb_buf);
-                hb_buffer_add_utf8(hb_buf, segment_str.as_ptr() as *const c_char, segment_str.len() as i32, 0, segment_str.len() as i32);
-                hb_buffer_guess_segment_properties(hb_buf);
-                hb_shape(face.hb_font, hb_buf, ptr::null(), 0);
-            }
-
-
-            // Retrieve the pointers to the glyph info from harfbuzz.
-            let (mut glyph_info_count, mut glyph_pos_count) = (0, 0);
-            let glyph_pos_ptr = unsafe{ hb_buffer_get_glyph_positions(hb_buf, &mut glyph_pos_count) };
-            let glyph_info_ptr = unsafe{ hb_buffer_get_glyph_infos(hb_buf, &mut glyph_info_count) };
-            assert_eq!(glyph_info_count, glyph_pos_count);
-
-            // Transform harfbuzz's glyph info into the rusty format, and add them to the buffer.
-            let mut cursor = Point2::new(0, 0);
-            let mut glyph_range = 0..0;
-            {
-                let glyph_info_iter = (0..glyph_pos_count as isize).map(|i| {
-                    let pos = unsafe{ *glyph_pos_ptr.offset(i) };
-                    let info = unsafe{ *glyph_info_ptr.offset(i) };
-
-                    // let glyph_metrics = unsafe{ match ft::FT_Load_Glyph(face.ft_face, info.codepoint, 0) {
-                    //     FT_Error(0) => {
-                    //         let ft_metrics = (*(*face.ft_face).glyph).metrics;
-                    //         GlyphMetricsPx {
-                    //             dims: DimsBox::new2((ft_metrics.width / 64) as i32, (ft_metrics.height / 64) as i32),
-                    //             hori_bearing: Vector2::new((ft_metrics.horiBearingX / 64) as i32, (ft_metrics.horiBearingY / 64) as i32),
-                    //             hori_advance: (ft_metrics.vertAdvance / 64) as i32
-                    //         }
-                    //     },
-                    //     _ => mem::zeroed()
-                    // } };
-
-                    let glyph_shaping = ShapedGlyph {
-                        pos: cursor + Vector2::new(pos.x_offset, pos.y_offset),
-                        advance: Vector2::new(pos.x_advance, pos.y_advance) / 64,
-                        glyph_index: info.codepoint,
-                        str_index: last_break + info.cluster as usize,
-                        word_str_index: info.cluster as usize,
-                        // metrics: glyph_metrics
-                    };
-                    cursor += Vector2::new(pos.x_advance, pos.y_advance) / 64;
-                    glyph_shaping
-                });
-                glyph_range.start = buffer.glyphs.len();
-                buffer.glyphs.extend(glyph_info_iter);
-                glyph_range.end = buffer.glyphs.len();
-            }
-
-            buffer.segments.push(RawShapedSegment {
-                text_range: last_break + text_offset..break_index + text_offset,
-                glyph_range,
-                advance: cursor.x,
-                break_type: match (hard_break, segment_str.as_bytes().last().map(|b| *b as char)) {
-                    (false, _) => BreakType::Soft,
-                    (true, Some('\n')) => BreakType::Newline,
-                    (true, _) => BreakType::Hard
-                }
-            });
-            last_break = break_index;
-        }
-
-        Ok(())
-    }
-}
-
-impl ShapedBuffer {
-    #[inline]
-    pub fn new() -> ShapedBuffer {
-        ShapedBuffer::default()
-    }
-
-    #[inline]
-    pub fn clear(&mut self) {
-        self.glyphs.clear();
-        self.segments.clear();
-        self.text.clear();
-    }
-
-    #[inline]
-    pub fn shrink_to_fit(&mut self) {
-        self.glyphs.shrink_to_fit();
-        self.segments.shrink_to_fit();
-        self.text.shrink_to_fit();
-    }
-
-    #[inline]
-    pub fn segments_len(&self) -> usize {
-        self.segments.len()
-    }
-
-    #[inline]
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
-    #[inline]
-    pub fn get_segment<'a>(&'a self, index: usize) -> Option<ShapedSegment<'a>> {
-        self.segments.get(index).cloned().map(|s| ShapedSegment {
-            text: &self.text.get(s.text_range.clone()).expect("bad text"),
-            text_range: s.text_range,
-            shaped_glyphs: &self.glyphs.get(s.glyph_range).expect("bad range"),
-            advance: s.advance,
-            break_type: s.break_type
+        Ok(ShapedText {
+            hb_buf: self.hb_buf,
+            hb_font: face.hb_font,
+            text,
+            last_break: 0,
+            glyph_count: 0,
+            line_breaks: LineBreakIterator::new(text),
+            _buffer_ref: PhantomData
         })
     }
 }
+
+impl<'a> ShapedText<'a> {
+    pub fn next<'b>(&'b mut self) -> Option<(ShapedSegment, ShapedGlyphIter<'b>)> {
+        let (break_index, hard_break) = self.line_breaks.next()?;
+
+        let segment_str = &self.text[self.last_break..break_index];
+        let hb_buf = self.hb_buf;
+
+        unsafe{
+            // Add the word to the harfbuzz buffer, and shape it.
+            hb_buffer_clear_contents(hb_buf);
+            hb_buffer_add_utf8(hb_buf, segment_str.as_ptr() as *const c_char, segment_str.len() as i32, 0, segment_str.len() as i32);
+            hb_buffer_guess_segment_properties(hb_buf);
+            hb_shape(self.hb_font, hb_buf, ptr::null(), 0);
+        }
+
+
+        // Retrieve the pointers to the glyph info from harfbuzz.
+        let (mut glyph_info_count, mut glyph_pos_count) = (0, 0);
+        let glyph_pos_ptr = unsafe{ hb_buffer_get_glyph_positions(hb_buf, &mut glyph_pos_count) };
+        let glyph_info_ptr = unsafe{ hb_buffer_get_glyph_infos(hb_buf, &mut glyph_info_count) };
+        assert_eq!(glyph_info_count, glyph_pos_count);
+        let glyph_pos = unsafe{ slice::from_raw_parts(glyph_pos_ptr, glyph_pos_count as usize) };
+        let glyph_info = unsafe{ slice::from_raw_parts(glyph_info_ptr, glyph_info_count as usize) };
+
+        let advance = glyph_pos.iter().map(|p| p.x_advance / 64).sum();
+
+        let segment = ShapedSegment {
+            text_range: self.last_break..break_index,
+            glyph_range: self.glyph_count..self.glyph_count + glyph_pos_count as usize,
+            advance,
+            break_type: match (hard_break, segment_str.as_bytes().last().map(|b| *b as char)) {
+                (false, _) => BreakType::Soft,
+                (true, Some('\n')) => BreakType::Newline,
+                (true, _) => BreakType::Hard
+            }
+        };
+        let shaped_glyph_iter = ShapedGlyphIter {
+            glyph_iter: glyph_pos.iter().cloned().zip(glyph_info.iter().cloned()),
+            last_break: self.last_break,
+            cursor: Point2::new(0, 0),
+        };
+        self.last_break = break_index;
+        self.glyph_count += glyph_pos_count as usize;
+
+        Some((segment, shaped_glyph_iter))
+    }
+
+    pub fn write_to_buffers(mut self, segment_buffer: &mut Vec<ShapedSegment>, glyph_buffer: &mut Vec<ShapedGlyph>) {
+        while let Some((segment, glyphs)) = self.next() {
+            segment_buffer.push(segment);
+            glyph_buffer.extend(glyphs);
+        }
+    }
+}
+
+impl Iterator for ShapedGlyphIter<'_> {
+    type Item = ShapedGlyph;
+    fn next(&mut self) -> Option<ShapedGlyph> {
+        let (pos, info) = self.glyph_iter.next()?;
+
+        let glyph_shaped = ShapedGlyph {
+            pos: self.cursor + Vector2::new(pos.x_offset, pos.y_offset),
+            advance: Vector2::new(pos.x_advance, pos.y_advance) / 64,
+            glyph_index: info.codepoint,
+            str_index: self.last_break + info.cluster as usize,
+            word_str_index: info.cluster as usize,
+        };
+        self.cursor += Vector2::new(pos.x_advance, pos.y_advance) / 64;
+        Some(glyph_shaped)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.glyph_iter.len(), Some(self.glyph_iter.len()))
+    }
+}
+impl ExactSizeIterator for ShapedGlyphIter<'_> {}
 
 impl<'a> GlyphSlot<'a> {
     pub fn metrics(&self) -> GlyphMetrics266 {
